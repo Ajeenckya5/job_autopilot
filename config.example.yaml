@@ -1,0 +1,151 @@
+# Job Autopilot config.
+# Copy to config.yaml and fill in the blanks.
+
+candidate:
+  name: "Aj"
+  email: "ajeenckyam@gmail.com"
+  phone: "+1-000-000-0000"
+  linkedin: "https://linkedin.com/in/your-handle"
+
+# Path to YOUR resume PDF (one page). The agent NEVER edits this original file.
+# When behavior.tailor_resume = true, the agent creates a TAILORED COPY per job
+# in <output_dir>/resumes/, with bullet/summary text rephrased to target the
+# JD - keeping the exact same fonts, positions, and one-page layout. Names,
+# dates, company names, school names, and section headers are never edited.
+# When tailor_resume = false, this exact file is attached to every email.
+resume_pdf: "~/Downloads/resume.pdf"
+
+# What you want to apply for. The pipeline searches all of these on every run.
+roles:
+  - keywords: "Machine Learning Engineer"
+    location: "United States"
+  - keywords: "AI Engineer"
+    location: "United States"
+  - keywords: "LLM Engineer"
+    location: "United States"
+  - keywords: "Robotics AI Engineer"
+    location: "United States"
+  - keywords: "Quantitative Analyst"
+    location: "United States"
+  - keywords: "Quantitative Engineer"
+    location: "United States"
+
+# How often to run (minutes). 60 = hourly, 360 = every 6h, 1440 = daily.
+schedule_minutes: 360
+
+# Max jobs shown in the CLI queue per run. Excel export includes every stored job.
+max_per_run: 5000
+
+# High-capacity source collection. Each source still stops early when the site
+# returns no more results, duplicates, blocks, or rate-limits.
+source_limits:
+  linkedin_max_jobs_per_role: 1000
+  indeed_max_pages_per_role: 100
+  jobright_max_pages_per_role: 250
+  # Only used when a watched company has no cached careers_url yet.
+  # Discovery checks ATS boards first, then /careers and /jobs, then caches one URL.
+  watched_company_discovery_candidates: 8
+
+# Seconds between sends. 60 is conservative-and-safe.
+throttle_seconds: 60
+
+# Where state + logs are written.
+output_dir: "~/Downloads/job-autopilot"
+
+# ----- API keys -----
+
+xai:
+  # The default points at xAI's Grok. To use a different provider, change
+  # base_url + model + api_key. Any OpenAI-compatible chat-completions
+  # endpoint works. See the README for ready-to-paste alternatives
+  # (OpenAI gpt-4o-mini, Groq's free Llama, DeepSeek, Gemini, OpenRouter).
+  base_url: "https://api.x.ai/v1"
+  api_key: "xai-XXXXXXXXXXXXXXXXXXXXXXXX"
+  model: "grok-4"
+  # Live Search was retired by xAI on 2026-01-12; this flag is ignored now.
+  use_live_search: false
+
+gmail:
+  address: "ajeenckyam@gmail.com"
+  # Leave blank in manual_apply_only mode.
+  app_password: ""
+  send: false
+
+# Optional: AnyMail Finder for verified recruiter emails. Free 50/mo, no card.
+# https://anymailfinder.com  - leave blank to skip.
+anymail_finder:
+  api_key: ""
+
+# Skip jobs that are too senior / require too much experience.
+filters:
+  # Drop any job whose TITLE contains any of these (case-insensitive substring).
+  # Applied before the LLM call to save Grok cost.
+  block_title_keywords:
+    - "senior"
+    - "sr."
+    - "sr "
+    - " sr"
+    - "staff"
+    - "principal"
+    - "lead "
+    - "head of"
+    - "director"
+    - "manager"
+    - "vp "
+    - "vice president"
+    - "architect"
+    - " ii"
+    - " iii"
+    - " iv"
+    - "level 2"
+    - "level 3"
+    - "ai content writer"
+    - "content writer"
+    - "business analyst"
+    - "ai operations specialist"
+    - "operations specialist"
+    - "remote software engineer"
+  # Hard cap on required minimum experience. 2 means skip 3 years, 3+ years,
+  # 4 years, 4+ years, etc. This is checked before any apply attempt.
+  max_years_required: 2
+  # Skip staffing agencies, recruiting firms, and third-party contract shops
+  # (e.g. companies whose name contains "Staffing" / "Recruiting", or whose
+  # description says "our client is looking for", "corp-to-corp", etc.).
+  # Also skips any job posted by Jobright on LinkedIn.
+  block_staffing_agencies: true
+
+# Behavior knobs.
+behavior:
+  # true = scrape, score, and export jobs.xlsx only. No auto-apply, no browser fill,
+  # no Easy Apply, no recruiter emails. Set false only if you want automation to apply.
+  manual_apply_only: true
+  # Send the ORIGINAL PDF as-is (no edits). Set true to enable the
+  # in-place content tailoring (preserves layout but rewrites bullets).
+  tailor_resume: false
+  # If true, only send when AnyMail Finder returns a verified email.
+  require_verified_email: false
+  # If true, every company seen with a relevant role is auto-watched for daily re-scans.
+  auto_watch_companies: true
+  # Skip jobs older than this many hours.
+  max_age_hours: 24
+  # Scout only queues jobs that overlap with your configured roles and resume.
+  # 35 keeps weak-but-relevant sparse postings for review while blocking vague/random matches.
+  # Lower to 0 to disable this cheap pre-LLM filter.
+  min_resume_match_score: 35
+  # LinkedIn/Indeed often return title-only rows. If the title-only score is at
+  # least this value, fetch the full posting before final score/experience checks.
+  detail_enrich_min_score: 55
+
+# Browser application automation is intentionally disabled in manual_apply_only mode.
+auto_apply:
+  enabled: false
+  submit: false
+  email_fallback: true
+  browser_user_data_dir: "~/Downloads/job-autopilot/browser-profile"
+  screenshot_dir: "~/Downloads/job-autopilot/applications"
+  headless: false
+  slow_mo_ms: 100
+  max_steps: 5
+  # Optional keyword-to-answer map for custom screening questions. Keep legal
+  # answers explicit and truthful; the browser filler will not guess them.
+  answers: {}

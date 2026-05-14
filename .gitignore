@@ -1,0 +1,36 @@
+# Personal config with credentials — use config.example.yaml as template
+config.yaml
+
+# Runtime state
+autopilot.sqlite
+*.sqlite
+
+# Logs and output
+logs/
+*.log
+
+# Resumes (personal documents)
+resumes/
+
+# Browser profile (may contain session cookies)
+browser-profile/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
