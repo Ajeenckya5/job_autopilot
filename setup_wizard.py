@@ -14,6 +14,8 @@ from typing import Any
 
 import yaml
 
+import imap_presets
+
 HERE = Path(__file__).resolve().parent
 
 LLM_PRESETS = {
@@ -156,6 +158,8 @@ def config_status(config_path: Path | None = None) -> dict[str, Any]:
         "scraper_type": scraper_type,
         "has_scraper_key": has_scraper,
         "mail_enabled": bool((data.get("mail_tracking") or {}).get("enabled")),
+        "mail_provider": str((data.get("mail_tracking") or {}).get("provider") or "auto"),
+        "imap_host": str((data.get("mail_tracking") or {}).get("imap_host") or ""),
         "presets": {
             "llm": {k: {"label": v["label"], "url": v["url"]} for k, v in LLM_PRESETS.items()},
             "scraper": {k: {"label": v["label"], "url": v["url"]} for k, v in SCRAPER_PRESETS.items()},
@@ -198,7 +202,11 @@ def build_config_dict(payload: dict[str, Any]) -> dict[str, Any]:
     scraper_type = str(payload.get("scraper_type") or "none").strip().lower()
     scraper_key = str(payload.get("scraper_api_key") or "").strip()
     adzuna_app_id = str(payload.get("adzuna_app_id") or "").strip()
-    mail_password = str(payload.get("gmail_app_password") or "").strip()
+    mail_password = str(
+        payload.get("mail_password") or payload.get("gmail_app_password") or ""
+    ).strip()
+    mail_provider = str(payload.get("mail_provider") or "auto").strip().lower()
+    imap_host = str(payload.get("imap_host") or "").strip()
     output_dir = str(payload.get("output_dir") or str(HERE / "data")).strip()
 
     if not name:
@@ -241,6 +249,11 @@ def build_config_dict(payload: dict[str, Any]) -> dict[str, Any]:
     schedule_minutes = max(30, int(round(1440 / runs_per_day)))
     roles = [{"keywords": title, "location": location} for title in titles]
     mail_user = email
+    mail_profile = imap_presets.resolve_mail_profile(
+        mail_user,
+        provider=mail_provider,
+        imap_host=imap_host,
+    )
     return {
         "candidate": {
             "name": name,
@@ -270,12 +283,12 @@ def build_config_dict(payload: dict[str, Any]) -> dict[str, Any]:
         },
         "mail_tracking": {
             "enabled": bool(mail_password),
-            "provider": "gmail",
-            "imap_host": "imap.gmail.com",
-            "imap_port": 993,
+            "provider": mail_profile["provider"],
+            "imap_host": mail_profile["imap_host"],
+            "imap_port": mail_profile["imap_port"],
             "username": mail_user,
             "app_password": mail_password,
-            "mailboxes": ["INBOX", "[Gmail]/All Mail"],
+            "mailboxes": mail_profile["mailboxes"],
             "lookback_days": max(30, lookback_days),
             "max_messages_per_mailbox": 500,
             "min_match_score": 70,
@@ -362,11 +375,22 @@ def write_config(
             if spec.get("app_id"):
                 payload.setdefault("adzuna_app_id", spec.get("app_id"))
 
-    if not str(payload.get("gmail_app_password") or "").strip():
-        payload["gmail_app_password"] = (
+    form_mail_pw = str(
+        payload.get("mail_password") or payload.get("gmail_app_password") or ""
+    ).strip()
+    if not form_mail_pw:
+        payload["mail_password"] = (
             (existing.get("mail_tracking") or {}).get("app_password")
             or (existing.get("gmail") or {}).get("app_password")
             or ""
+        )
+        payload.setdefault(
+            "mail_provider",
+            (existing.get("mail_tracking") or {}).get("provider") or "auto",
+        )
+        payload.setdefault(
+            "imap_host",
+            (existing.get("mail_tracking") or {}).get("imap_host") or "",
         )
 
     if existing.get("output_dir"):
@@ -390,6 +414,23 @@ def write_config(
             cfg["xai"] = existing["xai"]
     if reuse_scraper:
         cfg["scraper_apis"] = existing["scraper_apis"]
+    if not form_mail_pw and existing.get("mail_tracking"):
+        kept = dict(existing["mail_tracking"])
+        kept["username"] = (cfg.get("candidate") or {}).get("email") or kept.get("username")
+        if str(payload.get("mail_provider") or "auto").lower() not in {"auto", "detect", ""}:
+            profile = imap_presets.resolve_mail_profile(
+                kept.get("username") or "",
+                provider=str(payload.get("mail_provider") or "auto"),
+                imap_host=str(payload.get("imap_host") or ""),
+            )
+            kept["provider"] = profile["provider"]
+            kept["imap_host"] = profile["imap_host"]
+            kept["imap_port"] = profile["imap_port"]
+            kept["mailboxes"] = profile["mailboxes"]
+        cfg["mail_tracking"] = kept
+        if existing.get("gmail"):
+            cfg["gmail"] = existing["gmail"]
+            cfg["gmail"]["address"] = kept.get("username") or cfg["gmail"].get("address")
     for key, val in existing.items():
         if key not in cfg:
             cfg[key] = val
@@ -463,7 +504,14 @@ def prompt_cli(config_path: Path | None = None) -> int:
         scraper_key = _ask("Scraper API key", secret=True)
         if scraper_type == "adzuna":
             adzuna_app_id = _ask("Adzuna app id")
-    mail_pw = _ask("Gmail app password for application-status mail (optional)", secret=True)
+    mail_pw = _ask("Mailbox password or app password (any email provider, optional)", secret=True)
+    mail_provider = "auto"
+    imap_host = ""
+    if mail_pw:
+        print("Mailbox provider: auto, gmail, outlook, yahoo, icloud, or other")
+        mail_provider = _ask("Mailbox provider", "auto").lower()
+        if mail_provider in {"other", "imap", "custom"}:
+            imap_host = _ask("IMAP host", "imap.gmail.com")
 
     payload = {
         "name": name,
@@ -482,6 +530,9 @@ def prompt_cli(config_path: Path | None = None) -> int:
         "scraper_api_key": scraper_key,
         "adzuna_app_id": adzuna_app_id,
         "gmail_app_password": mail_pw,
+        "mail_password": mail_pw,
+        "mail_provider": mail_provider,
+        "imap_host": imap_host,
         "output_dir": str(HERE / "data"),
     }
     try:

@@ -66,8 +66,25 @@
             </label>
             <label>Scraper API key <input name="scraper_api_key" type="password" placeholder="paste your key" autocomplete="off"></label>
             <label id="adzunaIdWrap" hidden>Adzuna app id <input name="adzuna_app_id" autocomplete="off"></label>
-            <label class="wide">Gmail app password for tracking applications (optional) <input name="gmail_app_password" type="password" autocomplete="off"></label>
           </div>
+        </fieldset>
+        <fieldset>
+          <legend>4. Mailbox — any email domain</legend>
+          <div class="setup-grid">
+            <label>Mailbox provider
+              <select name="mail_provider" id="mailProvider">
+                <option value="auto">Auto-detect from your email</option>
+                <option value="gmail">Gmail / Google Workspace</option>
+                <option value="outlook">Outlook / Microsoft 365 / Hotmail</option>
+                <option value="yahoo">Yahoo</option>
+                <option value="icloud">iCloud</option>
+                <option value="other">Other — enter an IMAP host</option>
+              </select>
+            </label>
+            <label>Mailbox password or app password <input name="mail_password" type="password" placeholder="app password for this inbox" autocomplete="off"></label>
+            <label class="wide" id="imapHostWrap" hidden>IMAP host <input name="imap_host" placeholder="imap.your-university.edu"></label>
+          </div>
+          <p class="file-hint">Use Gmail, Outlook, Yahoo, iCloud, school, or work mail. Many providers need an app password, not your normal login password. Leave blank to skip mailbox tracking.</p>
         </fieldset>
         <p class="caption">Keys stay on your computer. GitHub Pages only shows this form — finding jobs still runs locally.</p>
         <div class="setup-actions">

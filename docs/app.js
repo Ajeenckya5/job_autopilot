@@ -373,18 +373,27 @@
       max_years_required: status.max_years_required || 3,
       llm_provider: status.llm_provider || "gemini",
       scraper_type: status.scraper_type && status.scraper_type !== "none" ? status.scraper_type : "jsearch",
+      mail_provider: status.mail_provider || "auto",
+      imap_host: status.imap_host || "",
     };
     Object.entries(map).forEach(([k, v]) => {
       if (form.elements[k] && v != null && v !== "") form.elements[k].value = v;
     });
     if (status.resume_ok) $("resumeHint").textContent = "A resume is already saved. Upload a new file only if you want to replace it.";
     toggleAdzuna();
+    toggleImapHost();
   }
 
   function toggleAdzuna() {
     const wrap = $("adzunaIdWrap");
     const sel = $("scraperType");
     if (wrap && sel) wrap.hidden = sel.value !== "adzuna";
+  }
+
+  function toggleImapHost() {
+    const wrap = $("imapHostWrap");
+    const sel = $("mailProvider");
+    if (wrap && sel) wrap.hidden = sel.value !== "other";
   }
 
   async function saveSetup(ev) {
@@ -508,7 +517,7 @@
       btn.disabled = true;
       btn.classList.add("busy");
       btn.textContent = "Reading mailbox";
-      setSyncNote("Scanning Gmail over IMAP. Statuses update only when a message clearly matches a posting.", true);
+      setSyncNote("Scanning your mailbox over IMAP. Statuses update only when a message clearly matches a posting.", true);
     } else {
       btn.disabled = false;
       btn.classList.remove("busy");
@@ -580,6 +589,7 @@
   });
   $("setupForm").addEventListener("submit", saveSetup);
   $("scraperType").addEventListener("change", toggleAdzuna);
+  if ($("mailProvider")) $("mailProvider").addEventListener("change", toggleImapHost);
 
   $("statusFilter").addEventListener("change", loadPipeline);
   let searchTimer;

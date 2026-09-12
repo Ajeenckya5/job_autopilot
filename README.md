@@ -224,22 +224,15 @@ python3 autopilot.py watch stripe.com Stripe
 
 It can mark `applied`, `rejected`, `assessment`, `interview`, `offer`, and `withdrawn`. Ambiguous emails are recorded in the local `mail_events` table without changing the job row.
 
-Open the local web app to see the funnel, mailbox activity, and pipeline:
-
-```bash
-python3 autopilot.py dashboard
-```
-
-That serves `http://127.0.0.1:8787/`. **Find jobs** runs a scout. **Sync mailbox** runs the same read-only IMAP pass as `mail-sync`.
-
-To run it automatically from `daemon`, add this to `config.yaml` and use a Gmail App Password with IMAP enabled:
+The mailbox can be **any domain**: Gmail, Outlook / Microsoft 365, Yahoo, iCloud, school, or work mail. Auto-detect uses the address you entered; school and work domains try Microsoft 365, then Google Workspace, then `imap.` / `mail.` on that domain. Sync mailbox in the app runs the same read-only IMAP pass.
 
 ```yaml
 mail_tracking:
   enabled: true
-  username: "you@gmail.com"
+  provider: auto          # or gmail | outlook | yahoo | icloud
+  username: "you@school.edu"
   app_password: "xxxx xxxx xxxx xxxx"
-  mailboxes: ["INBOX", "[Gmail]/All Mail"]
+  mailboxes: ["INBOX"]
   interval_minutes: 60
 ```
 
@@ -261,7 +254,8 @@ job-autopilot/
 ├── setup_wizard.py     # first-run setup (browser + CLI)
 ├── core.py             # config, DB, ATS-style score, filters, Excel export
 ├── sources.py          # LinkedIn, Indeed, Jobright + optional board APIs
-├── mail_tracker.py     # read-only IMAP application-status tracker
+├── mail_tracker.py     # read-only IMAP application-status tracker (any domain)
+├── imap_presets.py     # Gmail / Outlook / Yahoo / school / work IMAP hosts
 ├── requirements.txt
 ├── config.example.yaml
 └── README.md

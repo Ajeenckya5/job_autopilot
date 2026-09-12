@@ -83,27 +83,26 @@ llm_providers:
     model: "mistral-small-latest"
 
 gmail:
-  address: "you@gmail.com"
+  address: "you@email.com"
   # Leave blank in manual_apply_only mode.
   app_password: ""
   send: false
 
-# Optional read-only mailbox tracker. When enabled, the daemon checks job-related
-# emails and updates SQLite + jobs.xlsx for statuses like applied, rejected,
-# assessment, interview, offer, and withdrawn. For Gmail, this uses IMAP with a
-# Google App Password; it never sends, deletes, archives, or marks mail as read.
+# Optional read-only mailbox tracker. Works with any email domain over IMAP:
+# Gmail, Outlook/Microsoft 365, Yahoo, iCloud, school, or work mail.
+# It never sends, deletes, archives, or marks mail as read.
+# Many providers require an app password rather than your normal login password.
 mail_tracking:
   enabled: false
-  provider: "gmail"
-  imap_host: "imap.gmail.com"
+  # auto | gmail | outlook | yahoo | icloud | imap
+  provider: "auto"
+  imap_host: ""
   imap_port: 993
-  # Defaults to gmail.address when blank.
+  # Defaults to candidate.email when blank.
   username: ""
-  # Defaults to gmail.app_password when blank.
   app_password: ""
   mailboxes:
     - "INBOX"
-    - "[Gmail]/All Mail"
   lookback_days: 90
   max_messages_per_mailbox: 500
   min_match_score: 70

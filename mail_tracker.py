@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
 import core
+import imap_presets
 
 log = logging.getLogger("autopilot.mail_tracker")
 
@@ -176,8 +177,6 @@ def sync_mail_statuses(
         or ""
     )
     password = settings.get("app_password") or cfg.gmail.get("app_password") or ""
-    host = settings.get("imap_host") or "imap.gmail.com"
-    port = int(settings.get("imap_port") or 993)
     mailboxes = settings.get("mailboxes") or ["INBOX"]
     lookback_days = int(days or settings.get("lookback_days") or 90)
     max_messages = int(limit or settings.get("max_messages_per_mailbox") or 500)
@@ -191,10 +190,45 @@ def sync_mail_statuses(
 
     result = MailSyncResult()
     since = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).strftime("%d-%b-%Y")
-
-    log.info("mail-sync: connecting to %s:%s as %s", host, port, username)
-    with imaplib.IMAP4_SSL(host, port) as imap:
-        imap.login(username, password)
+    endpoints = imap_presets.candidate_endpoints(username, settings)
+    imap = None
+    last_err: Exception | None = None
+    used = endpoints[0] if endpoints else None
+    for attempt in endpoints:
+        host = attempt["imap_host"]
+        port = int(attempt["imap_port"])
+        log.info("mail-sync: connecting to %s:%s as %s", host, port, username)
+        try:
+            client = imaplib.IMAP4_SSL(host, port)
+            try:
+                client.login(username, password)
+            except Exception:
+                try:
+                    client.logout()
+                except Exception:
+                    pass
+                raise
+            imap = client
+            used = attempt
+            break
+        except imaplib.IMAP4.error as e:
+            last_err = e
+            log.warning("mail-sync: login failed on %s: %s", host, e)
+        except OSError as e:
+            last_err = e
+            log.warning("mail-sync: could not reach %s:%s (%s)", host, port, e)
+        except Exception as e:
+            last_err = e
+            log.warning("mail-sync: %s failed: %s", host, e)
+    if imap is None or used is None:
+        raise RuntimeError(
+            "Could not open this mailbox over IMAP. Use any email domain — Gmail, "
+            "Outlook, Yahoo, iCloud, school, or work — and an app password. "
+            f"Last error: {last_err}"
+        ) from last_err
+    if used.get("mailboxes"):
+        mailboxes = used["mailboxes"]
+    with imap:
         for mailbox in mailboxes:
             mailbox_name = str(mailbox)
             try:
