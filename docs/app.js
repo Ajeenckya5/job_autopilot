@@ -1,5 +1,6 @@
 (() => {
   const state = { track: "all", overview: null, view: "home" };
+  const STATIC_MODE = /\.github\.io$/i.test(location.hostname) || location.protocol === "file:";
 
   const TITLES = {
     home: "Overview",
@@ -223,6 +224,31 @@
     return `<table><thead>${head}</thead><tbody>${body}</tbody></table>`;
   }
 
+  function renderProfile(setup) {
+    const host = $("searchProfile");
+    if (!host) return;
+    const s = setup || {};
+    const resume = (s.resume_pdf || "").split(/[/\\]/).pop() || "Not set — click Edit";
+    const list = s.roles || [];
+    const titles = !list.length
+      ? "Not set — click Edit"
+      : list.length <= 4
+        ? list.join(", ")
+        : `${list.slice(0, 3).join(", ")} +${list.length - 3} more`;
+    const rows = [
+      ["Resume", resume],
+      ["Job titles", titles],
+      ["Location", s.location || "Not set"],
+      ["Look back", `${s.lookback_days || "—"} days of postings`],
+      ["Schedule", `${s.runs_per_day || "—"} times per day`],
+    ];
+    host.innerHTML = rows.map(([k, v]) => `
+      <div class="profile-item">
+        <div class="label">${k}</div>
+        <div class="val">${escapeHtml(String(v))}</div>
+      </div>`).join("");
+  }
+
   function renderTracks(tracks) {
     $("tracks").innerHTML = (tracks || []).map((t) => {
       const d = t.digest;
@@ -266,7 +292,9 @@
   }
 
   function isConfigured() {
-    return !(state.overview && state.overview.setup && !state.overview.setup.configured);
+    if (STATIC_MODE) return false;
+    if (!state.overview || !state.overview.setup) return false;
+    return !!state.overview.setup.configured;
   }
 
   function routePath() {
@@ -285,17 +313,23 @@
   async function applyRoute() {
     const path = routePath();
     const configured = isConfigured();
-    if (!configured || path === "/setup" || path === "/settings") {
-      const status = (state.overview && state.overview.setup) || await getJSON("/api/setup-status");
+    if (STATIC_MODE || !configured || path === "/setup" || path === "/settings") {
+      let status = (state.overview && state.overview.setup) || null;
+      if (!status && !STATIC_MODE) {
+        try { status = await getJSON("/api/setup-status"); }
+        catch (_) { status = storedSetup(); }
+      } else if (!status) {
+        status = storedSetup();
+      }
       fillSetup(status);
       $("btnSetupCancel").hidden = !configured;
       const heading = document.querySelector("#screen-setup h1");
-      if (heading) heading.textContent = configured ? "Settings" : "Set up your job search";
-      const lead = document.querySelector("#screen-setup .setup-lead");
+      if (heading) heading.textContent = configured ? "Resume, titles, and location" : "Set up your job search";
+      const lead = $("setupLead");
       if (lead) {
         lead.textContent = configured
-          ? "Update your resume, roles, location, schedule, or keys. Blank key fields keep the keys already saved."
-          : "A local web app for any job seeker. Upload a resume, say what you want, pick a location, and add your own API keys. It finds postings, scores them against your resume, and tracks replies from email.";
+          ? "Change your resume, the job titles you want, location, schedule, or keys. Blank key fields keep the keys already saved."
+          : "Start here. Upload a resume, list the job titles you want, and set a location. Then add your API keys so the app can score matches and search boards.";
       }
       showScreen("screen-setup");
       document.title = `${configured ? TITLES.settings : TITLES.setup} · Job Autopilot`;
@@ -307,18 +341,33 @@
     document.title = `${TITLES[view]} · Job Autopilot`;
   }
 
+  function storedSetup() {
+    try {
+      return JSON.parse(localStorage.getItem("jobAutopilotSetup") || "null");
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function formPayload(form) {
+    const data = Object.fromEntries(new FormData(form).entries());
+    delete data.resume_file;
+    return data;
+  }
+
   function fillSetup(status) {
     const form = $("setupForm");
     if (!form || !status) return;
-    const c = status.candidate || {};
+    const c = status.candidate || status;
+    const roles = Array.isArray(status.roles) ? status.roles.join(", ") : (status.roles || "");
     const map = {
       name: c.name,
       email: c.email,
       phone: c.phone,
       linkedin: c.linkedin,
       resume_pdf: status.resume_pdf,
-      roles: (status.roles || []).join(", "),
-      location: status.location || "United States",
+      roles,
+      location: status.location || c.location || "United States",
       lookback_days: status.lookback_days || 7,
       runs_per_day: status.runs_per_day || 4,
       max_years_required: status.max_years_required || 3,
@@ -349,6 +398,12 @@
     else fd.delete("resume_file");
     try {
       $("btnSetupSave").disabled = true;
+      if (STATIC_MODE) {
+        localStorage.setItem("jobAutopilotSetup", JSON.stringify(formPayload(form)));
+        err.hidden = false;
+        err.textContent = "Saved in this browser. GitHub Pages cannot search job boards. On your computer run: python3 autopilot.py dashboard — then fill the same form there to start finding jobs.";
+        return;
+      }
       const res = await fetch("/api/setup", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || res.statusText);
@@ -396,6 +451,7 @@
       await applyRoute();
       return data;
     }
+    renderProfile(data.setup);
     renderTrackNav(data.tracks || []);
     renderKpis(data.kpis, data.mailbox);
     renderFunnel(data);
@@ -534,7 +590,29 @@
   $("mailStage").addEventListener("change", loadMail);
   $("mailLinked").addEventListener("change", loadMail);
 
-  refresh()
-    .then(() => applyRoute())
-    .catch((err) => setSyncNote(err.message, true));
+  function bootStatic() {
+    const note = $("pagesNote");
+    if (note) {
+      note.hidden = false;
+      note.textContent = "This public GitHub Pages site is the setup form: resume, job titles, and location are below. Finding jobs still runs on your computer with python3 autopilot.py dashboard.";
+    }
+    $("btnSetupCancel").hidden = true;
+    $("btnSetupSave").textContent = "Save in this browser";
+    fillSetup(storedSetup());
+    showScreen("screen-setup");
+    document.title = "Set up · Job Autopilot";
+  }
+
+  if (STATIC_MODE) bootStatic();
+  else {
+    refresh()
+      .then(() => applyRoute())
+      .catch((err) => {
+        showScreen("screen-setup");
+        $("btnSetupCancel").hidden = true;
+        const box = $("setupError");
+        box.hidden = false;
+        box.textContent = err.message;
+      });
+  }
 })();

@@ -1,15 +1,8 @@
 # Job Autopilot
 
-A local **website** for any job seeker. Open it in a browser, set up once, then find jobs and track applications from the app.
+A local **website** for any job seeker. The public site is **https://ajeenckya5.github.io/job_autopilot/** — resume, job titles, and location are on that first page.
 
-1. Upload a resume and say what jobs you want, where, and how far back to look.
-2. Add your own scoring API key and an optional job-board scraper key.
-3. Click **Find jobs**. The app scrapes boards, scores matches against your resume, and stores them locally.
-4. Click **Sync mailbox** to read application receipts, interviews, assessments, offers, and rejections from Gmail.
-
-Nothing leaves this computer except the APIs you configured. **Manual-apply mode is the default** — the agent does not fill forms or submit applications.
-
-## Open the app
+To actually search boards and read mail, run the same app on your computer:
 
 ```bash
 cd job-autopilot
@@ -17,16 +10,7 @@ python3 -m pip install --user -r requirements.txt
 python3 autopilot.py dashboard
 ```
 
-That opens **http://127.0.0.1:8787/** in your browser.
-
-- First visit: a setup page (resume, roles, location, lookback, runs per day, API keys).
-- After setup: **Overview**, **Applications**, and **Mail** — plus **Find jobs**, **Sync mailbox**, and **Settings**.
-
-If `python3` is missing PyYAML, use the project venv:
-
-```bash
-~/.venvs/job-autopilot/bin/python dashboard.py
-```
+That opens **http://127.0.0.1:8787/**. First screen: upload a resume, list job titles, set location. After save: **Overview**, **Applications**, and **Mail**, plus **Find jobs** and **Sync mailbox**. **Resume & search** (top right) is where you change those answers later.
 
 ## What the app does
 
@@ -272,8 +256,8 @@ mail_tracking:
 ```
 job-autopilot/
 ├── autopilot.py        # CLI entrypoint
+├── docs/               # GitHub Pages site + local app UI
 ├── dashboard.py        # local web app (http://127.0.0.1:8787/)
-├── dashboard_static/   # app UI
 ├── setup_wizard.py     # first-run setup (browser + CLI)
 ├── core.py             # config, DB, ATS-style score, filters, Excel export
 ├── sources.py          # LinkedIn, Indeed, Jobright + optional board APIs

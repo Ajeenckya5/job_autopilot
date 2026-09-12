@@ -30,7 +30,7 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 HERE = Path(__file__).resolve().parent
-STATIC_DIR = HERE / "dashboard_static"
+STATIC_DIR = HERE / "docs" if (HERE / "docs" / "index.html").is_file() else HERE / "dashboard_static"
 SECRETS_PATH = HERE / "config.yaml"
 log = logging.getLogger("autopilot.dashboard")
 

@@ -177,6 +177,26 @@ a.btn:hover { text-decoration: none; }
   color: var(--muted);
 }
 .setup-grid label[hidden] { display: none; }
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+}
+.profile-item .label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.profile-item .val {
+  margin-top: 6px;
+  font-size: 15px;
+  font-weight: 550;
+  word-break: break-word;
+}
+@media (max-width: 900px) {
+  .profile-grid { grid-template-columns: 1fr 1fr; }
+}
 .setup-grid .wide { grid-column: 1 / -1; }
 .setup-grid input, .setup-grid select, .setup-grid textarea {
   font: inherit;
