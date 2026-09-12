@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1d3f5c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Job Autopilot">
+  <title>Job Autopilot</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <section class="screen" id="screen-setup">
+    <div class="setup-shell">
+      <p class="eyebrow">Job Autopilot</p>
+      <h1>Set up your job search</h1>
+      <p class="setup-lead">A local web app for any job seeker. Upload a resume, say what you want, pick a location, and add your own API keys. It finds postings, scores them against your resume, and tracks replies from email.</p>
+      <form class="setup-card" id="setupForm">
+        <p class="sync-note" id="setupError" hidden></p>
+        <fieldset>
+          <legend>You</legend>
+          <div class="setup-grid">
+            <label>Name <input name="name" required placeholder="Your name"></label>
+            <label>Email <input name="email" type="email" required placeholder="you@email.com"></label>
+            <label>Phone <input name="phone" placeholder="optional"></label>
+            <label>LinkedIn <input name="linkedin" placeholder="https://linkedin.com/in/you"></label>
+            <label class="wide">Resume
+              <input name="resume_file" type="file" accept=".pdf,.txt,.doc,.docx,application/pdf">
+              <span class="file-hint" id="resumeHint">PDF preferred. You can also paste a path below.</span>
+            </label>
+            <label class="wide">Or resume file path <input name="resume_pdf" placeholder="/Users/you/Downloads/resume.pdf"></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Search</legend>
+          <div class="setup-grid">
+            <label class="wide">Jobs you want <textarea name="roles" required placeholder="Software Engineer, Data Analyst, Product Manager"></textarea></label>
+            <label>Location <input name="location" value="United States"></label>
+            <label>Days of past postings <input name="lookback_days" type="number" min="1" max="60" value="7"></label>
+            <label>Times per day to run <input name="runs_per_day" type="number" min="1" max="24" value="4"></label>
+            <label>Max years a posting may require <input name="max_years_required" type="number" min="0" max="20" value="3"></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Your API keys</legend>
+          <div class="setup-grid">
+            <label>Scoring API
+              <select name="llm_provider">
+                <option value="gemini">Google Gemini (free)</option>
+                <option value="groq">Groq (free)</option>
+                <option value="openai">OpenAI</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="xai">xAI Grok</option>
+              </select>
+            </label>
+            <label>Scoring API key <input name="llm_api_key" type="password" placeholder="paste your key" autocomplete="off"></label>
+            <label>Job scraper API
+              <select name="scraper_type" id="scraperType">
+                <option value="jsearch">JSearch / RapidAPI</option>
+                <option value="adzuna">Adzuna</option>
+                <option value="serpapi">SerpAPI Google Jobs</option>
+                <option value="none">Built-in scrapers only</option>
+              </select>
+            </label>
+            <label>Scraper API key <input name="scraper_api_key" type="password" placeholder="paste your key" autocomplete="off"></label>
+            <label id="adzunaIdWrap" hidden>Adzuna app id <input name="adzuna_app_id" autocomplete="off"></label>
+            <label class="wide">Gmail app password for tracking applications (optional) <input name="gmail_app_password" type="password" autocomplete="off"></label>
+          </div>
+        </fieldset>
+        <p class="caption">Keys stay on this computer in config.yaml. Built-in LinkedIn, Jobright, and Glassdoor scrapers still run if you skip a board API.</p>
+        <div class="setup-actions">
+          <button type="button" class="btn btn-ghost" id="btnSetupCancel">Back to app</button>
+          <button type="submit" class="btn" id="btnSetupSave">Save and open the app</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="screen is-on" id="screen-app">
+    <header class="top">
+      <a class="brand" href="#/">
+        <p class="eyebrow">Job Autopilot</p>
+        <h1 id="candidateName">Job search</h1>
+        <p class="sub" id="mailboxLine">Your search workspace</p>
+      </a>
+      <nav class="app-nav" aria-label="App">
+        <a href="#/" data-view="home">Overview</a>
+        <a href="#/applications" data-view="apps">Applications</a>
+        <a href="#/mail" data-view="mail">Mail</a>
+      </nav>
+      <div class="top-actions">
+        <div class="seg" id="trackSeg" role="tablist" aria-label="Track">
+          <button class="seg-btn is-on" data-track="all" type="button">All</button>
+        </div>
+        <button class="btn" id="btnScout" type="button">Find jobs</button>
+        <button class="btn btn-ghost" id="btnSync" type="button">Sync mailbox</button>
+        <a class="btn btn-ghost" id="btnSetup" href="#/settings">Settings</a>
+      </div>
+    </header>
+
+    <main>
+      <p class="sync-note" id="syncNote" hidden></p>
+
+      <section class="view is-on" id="view-home">
+        <section class="kpis" id="kpis">
+          <p class="empty" style="grid-column:1/-1">Loading your workspace…</p>
+        </section>
+
+        <section class="grid-2">
+          <article class="panel">
+            <header class="panel-h">
+              <h2>Hiring funnel</h2>
+              <p>Applications matched from the mailbox and job ledger.</p>
+            </header>
+            <div id="funnel"></div>
+          </article>
+          <article class="panel">
+            <header class="panel-h">
+              <h2>Mailbox activity</h2>
+              <p>Job-related emails by week.</p>
+            </header>
+            <div class="chart" id="mailChart"></div>
+            <p class="caption" id="mailCaption"></p>
+          </article>
+        </section>
+
+        <section class="grid-2">
+          <article class="panel">
+            <header class="panel-h">
+              <h2>What the numbers mean</h2>
+            </header>
+            <div class="insights" id="insights"></div>
+          </article>
+          <article class="panel">
+            <header class="panel-h">
+              <h2>Applications logged</h2>
+              <p>When a matched posting first entered the ledger.</p>
+            </header>
+            <div class="chart" id="jobsChart"></div>
+          </article>
+        </section>
+
+        <section class="panel">
+          <header class="panel-h">
+            <h2>Needs attention</h2>
+            <p>Interviews, assessments, and offers.</p>
+          </header>
+          <div class="table-wrap" id="attention"></div>
+        </section>
+
+        <section class="grid-2">
+          <article class="panel">
+            <header class="panel-h">
+              <h2>Companies in play</h2>
+            </header>
+            <div id="companies"></div>
+          </article>
+          <article class="panel">
+            <header class="panel-h">
+              <h2>Search snapshot</h2>
+            </header>
+            <div id="tracks"></div>
+          </article>
+        </section>
+      </section>
+
+      <section class="view" id="view-apps">
+        <section class="panel">
+          <header class="panel-h row">
+            <div>
+              <h2>Application ledger</h2>
+              <p>Every matched application. Change status here if mail got it wrong.</p>
+            </div>
+            <div class="filters">
+              <select id="statusFilter">
+                <option value="applied,assessment,interview,offer,rejected,withdrawn">All applications</option>
+                <option value="interview,assessment,offer">Active pipeline</option>
+                <option value="applied">Waiting</option>
+                <option value="interview">Interviews</option>
+                <option value="assessment">Assessments</option>
+                <option value="rejected">Rejected</option>
+                <option value="offer">Offers</option>
+              </select>
+              <input id="jobSearch" type="search" placeholder="Search title or company" autocomplete="off">
+            </div>
+          </header>
+          <div class="table-wrap" id="pipeline"></div>
+          <p class="caption" id="pipelineCaption"></p>
+        </section>
+      </section>
+
+      <section class="view" id="view-mail">
+        <section class="panel">
+          <header class="panel-h row">
+            <div>
+              <h2>Job-related mail</h2>
+              <p>Classified inbox. Personal mail is excluded.</p>
+            </div>
+            <div class="filters">
+              <select id="mailStage">
+                <option value="job">All job mail</option>
+                <option value="applied">Receipts</option>
+                <option value="interview">Interviews</option>
+                <option value="assessment">Assessments</option>
+                <option value="rejected">Rejections</option>
+                <option value="offer">Offers</option>
+              </select>
+              <select id="mailLinked">
+                <option value="all">Matched and unmatched</option>
+                <option value="linked">Matched to a posting</option>
+                <option value="unlinked">Unmatched</option>
+              </select>
+            </div>
+          </header>
+          <div class="table-wrap" id="mail"></div>
+          <p class="caption" id="mailTableCaption"></p>
+        </section>
+      </section>
+    </main>
+
+    <footer>
+      Status only changes when an email both classifies clearly and matches a known company and role.
+    </footer>
+  </section>
+
+  <script src="/app.js"></script>
+</body>
+</html>

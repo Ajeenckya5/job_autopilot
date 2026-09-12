@@ -1,9 +1,21 @@
 # Personal config with credentials — use config.example.yaml as template
 config.yaml
+config_ml.yaml
+config_ops.yaml
+*.yaml.bak*
+*.bak
+*.bak-*
 
-# Runtime state
+# Runtime state and personal ledgers
 autopilot.sqlite
 *.sqlite
+*.sqlite-journal
+ml/
+ops/
+data/
+*.xlsx
+digest.json
+chunk_stats.json
 
 # Logs and output
 logs/
@@ -11,6 +23,13 @@ logs/
 
 # Resumes (personal documents)
 resumes/
+resume_ml.txt
+resume_ops.txt
+
+# Local launchd / install leftovers
+.initialized
+.sched_cursor.json
+com.aj.jobsearch.plist
 
 # Browser profile (may contain session cookies)
 browser-profile/

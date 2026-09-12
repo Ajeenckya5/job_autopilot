@@ -2,8 +2,8 @@
 # Copy to config.yaml and fill in the blanks.
 
 candidate:
-  name: "Aj"
-  email: "ajeenckyam@gmail.com"
+  name: "Your Name"
+  email: "you@gmail.com"
   phone: "+1-000-000-0000"
   linkedin: "https://linkedin.com/in/your-handle"
 
@@ -17,17 +17,9 @@ resume_pdf: "~/Downloads/resume.pdf"
 
 # What you want to apply for. The pipeline searches all of these on every run.
 roles:
-  - keywords: "Machine Learning Engineer"
+  - keywords: "Software Engineer"
     location: "United States"
-  - keywords: "AI Engineer"
-    location: "United States"
-  - keywords: "LLM Engineer"
-    location: "United States"
-  - keywords: "Robotics AI Engineer"
-    location: "United States"
-  - keywords: "Quantitative Analyst"
-    location: "United States"
-  - keywords: "Quantitative Engineer"
+  - keywords: "Data Analyst"
     location: "United States"
 
 # How often to run (minutes). 60 = hourly, 360 = every 6h, 1440 = daily.
@@ -55,21 +47,67 @@ output_dir: "~/Downloads/job-autopilot"
 # ----- API keys -----
 
 xai:
-  # The default points at xAI's Grok. To use a different provider, change
-  # base_url + model + api_key. Any OpenAI-compatible chat-completions
-  # endpoint works. See the README for ready-to-paste alternatives
-  # (OpenAI gpt-4o-mini, Groq's free Llama, DeepSeek, Gemini, OpenRouter).
+  # Legacy single-provider config. Still works; llm_providers below takes precedence.
   base_url: "https://api.x.ai/v1"
   api_key: "xai-XXXXXXXXXXXXXXXXXXXXXXXX"
   model: "grok-4"
-  # Live Search was retired by xAI on 2026-01-12; this flag is ignored now.
   use_live_search: false
 
+# Multi-provider LLM fallback chain. Providers are tried in order; the next
+# one is used automatically on any error (rate-limit, quota, timeout, etc.).
+# Remove entries you don't want. At least one provider is required.
+#
+# Free tiers (no card required):
+#   gemini:     gemini-2.0-flash  — 15 RPM, 1M tokens/day
+#   openrouter: google/gemini-2.0-flash-exp:free — generous free quota
+#   mistral:    mistral-small-latest — free tier, ~2 RPM
+#
+llm_providers:
+  - type: "xai"
+    api_key: "xai-XXXXXXXXXXXXXXXXXXXXXXXX"
+    model: "grok-4"
+
+  # Google Gemini free tier — get key at https://aistudio.google.com/apikey
+  - type: "gemini"
+    api_key: "AIza-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    model: "gemini-2.0-flash"
+
+  # OpenRouter free tier — get key at https://openrouter.ai/keys
+  - type: "openrouter"
+    api_key: "sk-or-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    model: "google/gemini-2.0-flash-exp:free"
+
+  # Mistral AI free tier — get key at https://console.mistral.ai/api-keys
+  - type: "mistral"
+    api_key: "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+    model: "mistral-small-latest"
+
 gmail:
-  address: "ajeenckyam@gmail.com"
+  address: "you@gmail.com"
   # Leave blank in manual_apply_only mode.
   app_password: ""
   send: false
+
+# Optional read-only mailbox tracker. When enabled, the daemon checks job-related
+# emails and updates SQLite + jobs.xlsx for statuses like applied, rejected,
+# assessment, interview, offer, and withdrawn. For Gmail, this uses IMAP with a
+# Google App Password; it never sends, deletes, archives, or marks mail as read.
+mail_tracking:
+  enabled: false
+  provider: "gmail"
+  imap_host: "imap.gmail.com"
+  imap_port: 993
+  # Defaults to gmail.address when blank.
+  username: ""
+  # Defaults to gmail.app_password when blank.
+  app_password: ""
+  mailboxes:
+    - "INBOX"
+    - "[Gmail]/All Mail"
+  lookback_days: 90
+  max_messages_per_mailbox: 500
+  min_match_score: 70
+  interval_minutes: 60
 
 # Optional: AnyMail Finder for verified recruiter emails. Free 50/mo, no card.
 # https://anymailfinder.com  - leave blank to skip.
@@ -105,9 +143,9 @@ filters:
     - "ai operations specialist"
     - "operations specialist"
     - "remote software engineer"
-  # Hard cap on required minimum experience. 2 means skip 3 years, 3+ years,
-  # 4 years, 4+ years, etc. This is checked before any apply attempt.
-  max_years_required: 2
+  # Hard cap on required minimum experience. 3 means skip 4 years, 4+ years,
+  # 5 years, etc. Jobs requiring 3 or fewer years are allowed.
+  max_years_required: 3
   # Skip staffing agencies, recruiting firms, and third-party contract shops
   # (e.g. companies whose name contains "Staffing" / "Recruiting", or whose
   # description says "our client is looking for", "corp-to-corp", etc.).

@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 PLATFORM_LOGIN_URLS = {
     "linkedin": "https://www.linkedin.com/login",
     "indeed":   "https://secure.indeed.com/account/login",
@@ -86,6 +88,11 @@ def do_platform_login(platform: str, cfg: Any) -> None:
 
 log = logging.getLogger("autopilot.applicator")
 
+# File inputs whose accept attribute is image-only (profile photo, logo, etc.)
+# should NOT receive the resume PDF.
+_IMAGE_ACCEPT_RE = re.compile(
+    r'\bimage/|\.(?:png|jpe?g|gif|webp|svg|bmp|ico)\b', re.I)
+
 APPLY_RE = re.compile(
     r"\b(easy apply|apply now|apply on employer site|apply for this job|apply)\b",
     re.I,
@@ -129,7 +136,10 @@ def apply_with_browser(job: dict, cfg: Any, jd: dict, pitch: dict,
     user_data_dir.mkdir(parents=True, exist_ok=True)
 
     values = _candidate_values(cfg, pitch)
-    answers = {str(k).lower(): str(v) for k, v in (auto.get("answers") or {}).items()}
+    configured_answers = {str(k).lower(): str(v) for k, v in (auto.get("answers") or {}).items()}
+    # Merge learned answers (lower priority) with explicitly configured ones.
+    learned = _load_learned_answers(cfg.output_dir)
+    answers = {**learned, **configured_answers}
     headless = bool(auto.get("headless", False))
     slow_mo = int(auto.get("slow_mo_ms", 100))
 
@@ -157,11 +167,14 @@ def apply_with_browser(job: dict, cfg: Any, jd: dict, pitch: dict,
                                "login required before application form")
 
             status = "ready_for_review"
+            session_learned: dict[str, str] = {}
             for _ in range(max_steps):
                 _fill_files(page, resume_pdf)
-                _fill_fields(page, values, answers)
-                _fill_selects(page, answers)
-                _check_configured_boxes(page, answers)
+                # Try dropdowns/comboboxes before free-text fields.
+                session_learned.update(_fill_comboboxes(page, answers))
+                session_learned.update(_fill_fields(page, values, answers))
+                session_learned.update(_fill_selects(page, answers))
+                session_learned.update(_check_configured_boxes(page, answers))
 
                 if submit_enabled:
                     submitted, page, _ = _click_text(page, context, SUBMIT_RE, timeout=2500)
@@ -177,6 +190,10 @@ def apply_with_browser(job: dict, cfg: Any, jd: dict, pitch: dict,
                 if _looks_login_blocked(page):
                     status = "blocked"
                     break
+
+            # Persist anything the bot successfully filled so future runs reuse it.
+            if session_learned:
+                _save_learned_answers(cfg.output_dir, session_learned)
 
             note = (
                 "submitted by browser automation"
@@ -251,12 +268,18 @@ def _click_text(page: Any, context: Any, pattern: re.Pattern,
 def _fill_files(page: Any, resume_pdf: Path) -> None:
     for inp in page.query_selector_all("input[type='file']"):
         try:
+            accept = (inp.get_attribute("accept") or "").lower()
+            # Skip image-only file inputs (profile photos, logos, etc.)
+            if accept and _IMAGE_ACCEPT_RE.search(accept) and "pdf" not in accept:
+                log.debug("skipping image-only file input (accept=%s)", accept)
+                continue
             inp.set_input_files(str(resume_pdf))
         except Exception as e:
             log.debug("file upload skipped: %s", e)
 
 
-def _fill_fields(page: Any, values: dict[str, str], answers: dict[str, str]) -> None:
+def _fill_fields(page: Any, values: dict[str, str], answers: dict[str, str]) -> dict[str, str]:
+    filled: dict[str, str] = {}
     selector = (
         "input:not([type='hidden']):not([type='file']):not([type='submit']):"
         "not([type='button']):not([disabled]), textarea:not([disabled])"
@@ -273,11 +296,16 @@ def _fill_fields(page: Any, values: dict[str, str], answers: dict[str, str]) -> 
             value = _answer_for(label, answers) or _answer_for(label, values)
             if value:
                 el.fill(value, timeout=1000)
+                key = _label_key(label)
+                if key:
+                    filled[key] = value
         except Exception as e:
             log.debug("field fill skipped: %s", e)
+    return filled
 
 
-def _fill_selects(page: Any, answers: dict[str, str]) -> None:
+def _fill_selects(page: Any, answers: dict[str, str]) -> dict[str, str]:
+    filled: dict[str, str] = {}
     for el in page.query_selector_all("select:not([disabled])"):
         try:
             label = _field_label(el)
@@ -287,41 +315,158 @@ def _fill_selects(page: Any, answers: dict[str, str]) -> None:
                     el.select_option(label=value, timeout=1000)
                 except Exception:
                     el.select_option(value=value, timeout=1000)
+                key = _label_key(label)
+                if key:
+                    filled[key] = value
         except Exception as e:
             log.debug("select fill skipped: %s", e)
+    return filled
 
 
-def _check_configured_boxes(page: Any, answers: dict[str, str]) -> None:
+def _check_configured_boxes(page: Any, answers: dict[str, str]) -> dict[str, str]:
     truthy = {"1", "true", "yes", "y", "checked", "check"}
+    filled: dict[str, str] = {}
     for el in page.query_selector_all("input[type='checkbox'], input[type='radio']"):
         try:
             label = _field_label(el)
             value = _answer_for(label, answers)
             if value and value.strip().lower() in truthy:
                 el.check(timeout=1000)
+                key = _label_key(label)
+                if key:
+                    filled[key] = value
         except Exception as e:
             log.debug("box fill skipped: %s", e)
+    return filled
 
 
 def _field_label(el: Any) -> str:
+    """Read the full question/label text for a form element.
+    Collects attributes, associated <label>, parent label, and the nearest
+    form-group container so screening questions are read completely."""
     try:
         return el.evaluate(
             """node => {
                 const attrs = ['name', 'id', 'placeholder', 'aria-label', 'autocomplete', 'type'];
                 const parts = attrs.map(a => node.getAttribute(a) || '');
+                // Explicit <label for="..."> association.
                 if (node.id) {
-                  const label = document.querySelector(`label[for="${CSS.escape(node.id)}"]`);
-                  if (label) parts.push(label.innerText || '');
+                  const lbl = document.querySelector(`label[for="${CSS.escape(node.id)}"]`);
+                  if (lbl) parts.push(lbl.innerText || '');
                 }
+                // aria-labelledby
+                const lblBy = node.getAttribute('aria-labelledby');
+                if (lblBy) {
+                  lblBy.split(' ').forEach(id => {
+                    const ref = document.getElementById(id);
+                    if (ref) parts.push(ref.innerText || '');
+                  });
+                }
+                // Ancestor <label> wrapping the input.
                 const parentLabel = node.closest('label');
                 if (parentLabel) parts.push(parentLabel.innerText || '');
-                const group = node.closest('[role="group"], .form-group, .field, .question');
+                // Nearest form group — captures the full question sentence.
+                const group = node.closest(
+                  '[role="group"], .form-group, .field, .question, ' +
+                  '.jobs-easy-apply-form-element, .ia-Questions-item, ' +
+                  '.application-question, .field-wrapper, .form-field'
+                );
                 if (group) parts.push(group.innerText || '');
                 return parts.join(' ').toLowerCase();
             }"""
         )
     except Exception:
         return ""
+
+
+def _label_key(label: str) -> str:
+    """Short normalised key for storing a learned answer."""
+    first_line = label.split('\n')[0].strip()
+    return re.sub(r'\s+', ' ', first_line)[:80]
+
+
+def _fill_comboboxes(page: Any, answers: dict[str, str]) -> dict[str, str]:
+    """Handle ARIA comboboxes and custom dropdown widgets.
+    Reads the full question, tries to pick a matching option from the open
+    listbox, and falls back to typing only if no option matches."""
+    filled: dict[str, str] = {}
+    for el in page.query_selector_all(
+        '[role="combobox"]:not([disabled]), [role="listbox"]:not([disabled])'
+    ):
+        try:
+            label = _field_label(el)
+            value = _answer_for(label, answers)
+            if not value:
+                continue
+            el.click(timeout=1500)
+            time.sleep(0.4)
+            # Try to find a matching option in the open listbox.
+            options = page.query_selector_all('[role="option"], [role="listitem"]')
+            matched = None
+            for opt in options:
+                try:
+                    text = opt.inner_text(timeout=300).strip().lower()
+                    if value.lower() in text or text in value.lower():
+                        matched = opt
+                        break
+                except Exception:
+                    pass
+            if matched:
+                matched.click(timeout=1000)
+                key = _label_key(label)
+                if key:
+                    filled[key] = value
+                log.debug("combobox selected: %s = %s", key, value)
+            else:
+                # No matching option — type the value and close.
+                try:
+                    el.fill(value, timeout=1000)
+                    key = _label_key(label)
+                    if key:
+                        filled[key] = value
+                except Exception:
+                    try:
+                        page.keyboard.press("Escape")
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.debug("combobox fill skipped: %s", e)
+    return filled
+
+
+def _load_learned_answers(output_dir: Path) -> dict[str, str]:
+    """Load answers learned from previous browser sessions."""
+    path = output_dir / "learned_answers.yaml"
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            data = yaml.safe_load(f) or {}
+        return {str(k).lower(): str(v) for k, v in data.items()}
+    except Exception as e:
+        log.debug("could not load learned answers: %s", e)
+        return {}
+
+
+def _save_learned_answers(output_dir: Path, new_answers: dict[str, str]) -> None:
+    """Persist newly discovered field→value pairs so future runs reuse them."""
+    if not new_answers:
+        return
+    path = output_dir / "learned_answers.yaml"
+    existing: dict = {}
+    if path.exists():
+        try:
+            with open(path) as f:
+                existing = yaml.safe_load(f) or {}
+        except Exception:
+            pass
+    existing.update({k: v for k, v in new_answers.items() if k and v})
+    try:
+        with open(path, "w") as f:
+            yaml.dump(existing, f, default_flow_style=False, allow_unicode=True)
+        log.info("learned_answers saved: %d total entries", len(existing))
+    except Exception as e:
+        log.debug("could not save learned answers: %s", e)
 
 
 def _answer_for(label: str, answers: dict[str, str]) -> str:

@@ -5,10 +5,27 @@ investment banks, and high-signal AI startups.
 Run once:  python3 seed_companies.py
 """
 import sqlite3
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB_PATH = Path.home() / "Downloads/job-autopilot/autopilot.sqlite"
+import yaml
+
+HERE = Path(__file__).resolve().parent
+
+
+def _db_path() -> Path:
+    cfg_path = HERE / "config.yaml"
+    if cfg_path.exists():
+        with open(cfg_path) as f:
+            cfg = yaml.safe_load(f) or {}
+        out_dir = cfg.get("output_dir")
+        if out_dir:
+            return Path(os.path.expanduser(out_dir)).resolve() / "autopilot.sqlite"
+    return HERE / "autopilot.sqlite"
+
+
+DB_PATH = _db_path()
 
 COMPANIES = [
     # ─── FAANG ────────────────────────────────────────────────────────────────
@@ -19,10 +36,10 @@ COMPANIES = [
     ("openai.com",          "OpenAI",                   ""),
     ("anthropic.com",       "Anthropic",                "https://boards.greenhouse.io/anthropic"),
     ("mistral.ai",          "Mistral AI",               "https://jobs.lever.co/mistral"),
-    ("cohere.com",          "Cohere",                   "https://boards.greenhouse.io/cohere"),
-    ("groq.com",            "Groq",                     "https://boards.greenhouse.io/groq"),
-    ("together.ai",         "Together AI",              "https://jobs.lever.co/togetherai"),
-    ("perplexity.ai",       "Perplexity AI",            "https://boards.greenhouse.io/perplexityai"),
+    ("cohere.com",          "Cohere",                   "https://jobs.ashbyhq.com/cohere"),
+    ("groq.com",            "Groq",                     "https://groq.com/careers-at-groq"),
+    ("together.ai",         "Together AI",              "https://job-boards.greenhouse.io/togetherai"),
+    ("perplexity.ai",       "Perplexity AI",            "https://jobs.ashbyhq.com/perplexity"),
     ("xai.com",             "xAI (Grok)",               ""),
     ("inflection.ai",       "Inflection AI",            ""),
     ("imbue.com",           "Imbue AI",                 ""),
@@ -41,10 +58,10 @@ COMPANIES = [
 
     # ─── FAANG-ADJACENT / BIG TECH AI ────────────────────────────────────────
     ("databricks.com",      "Databricks",               "https://boards.greenhouse.io/databricks"),
-    ("snowflake.com",       "Snowflake",                "https://boards.greenhouse.io/snowflake"),
+    ("snowflake.com",       "Snowflake",                "https://careers.snowflake.com/us/en"),
     ("palantir.com",        "Palantir",                 "https://jobs.lever.co/palantir"),
     ("salesforce.com",      "Salesforce",               "https://careers.salesforce.com"),
-    ("adobe.com",           "Adobe",                    "https://apply.workable.com/adobe"),
+    ("adobe.com",           "Adobe",                    "https://careers.adobe.com/us/en"),
     ("tesla.com",           "Tesla",                    ""),
     ("spacex.com",          "SpaceX",                   ""),
     ("oracle.com",          "Oracle",                   ""),
@@ -56,9 +73,9 @@ COMPANIES = [
 
     # ─── ML INFRA & DEVELOPER TOOLS AI STARTUPS ──────────────────────────────
     ("anyscale.com",        "Anyscale",                 "https://jobs.lever.co/anyscale"),
-    ("modal.com",           "Modal Labs",               "https://jobs.lever.co/modal-labs"),
-    ("wandb.ai",            "Weights & Biases",         "https://boards.greenhouse.io/wandb"),
-    ("replit.com",          "Replit",                   "https://boards.greenhouse.io/replit"),
+    ("modal.com",           "Modal Labs",               "https://jobs.ashbyhq.com/modal"),
+    ("wandb.ai",            "Weights & Biases",         "https://wandb.ai/site/careers"),
+    ("replit.com",          "Replit",                   "https://jobs.ashbyhq.com/replit"),
     ("coreweave.com",       "CoreWeave",                "https://boards.greenhouse.io/coreweave"),
     ("lambdalabs.com",      "Lambda Labs",              ""),
     ("deepinfra.com",       "DeepInfra",                ""),
@@ -66,9 +83,9 @@ COMPANIES = [
     ("huggingface.co",      "Hugging Face",             "https://apply.workable.com/huggingface"),
     ("langchain.com",       "LangChain",                ""),
     ("llamaindex.ai",       "LlamaIndex",               ""),
-    ("weaviate.io",         "Weaviate",                 "https://boards.greenhouse.io/weaviate"),
+    ("weaviate.io",         "Weaviate",                 "https://jobs.ashbyhq.com/weaviate"),
     ("qdrant.tech",         "Qdrant",                   ""),
-    ("pinecone.io",         "Pinecone",                 "https://boards.greenhouse.io/pinecone"),
+    ("pinecone.io",         "Pinecone",                 "https://jobs.ashbyhq.com/pinecone"),
     ("chroma.com",          "Chroma",                   ""),
     ("vellum.ai",           "Vellum AI",                ""),
     ("brainlid.org",        "Nx AI",                    ""),
@@ -76,21 +93,20 @@ COMPANIES = [
     ("comet.ml",            "Comet ML",                 ""),
     # Scale AI is in block_companies filter — skipped intentionally
     ("aisera.com",          "Aisera",                   ""),
-    ("glean.com",           "Glean",                    "https://apply.workable.com/glean"),
+    ("glean.com",           "Glean",                    "https://jobs.ashbyhq.com/glean"),
     ("moveworks.com",       "Moveworks",                "https://boards.greenhouse.io/moveworks"),
-    ("cohere.com",          "Cohere",                   "https://boards.greenhouse.io/cohere"),
     ("vapi.ai",             "Vapi AI",                  ""),
-    ("cresta.com",          "Cresta AI",                "https://jobs.lever.co/cresta"),
+    ("cresta.com",          "Cresta AI",                "https://job-boards.greenhouse.io/cresta"),
     ("jasper.ai",           "Jasper AI",                ""),
     ("writesonic.com",      "Writesonic",               ""),
     ("cursor.com",          "Cursor (Anysphere)",       ""),
-    ("github.com",          "GitHub (Microsoft)",       "https://boards.greenhouse.io/github"),
-    ("deepgram.com",        "Deepgram",                 "https://boards.greenhouse.io/deepgram"),
-    ("assemblyai.com",      "AssemblyAI",               "https://jobs.lever.co/assemblyai"),
+    ("github.com",          "GitHub (Microsoft)",       "https://www.github.careers/careers-home/jobs"),
+    ("deepgram.com",        "Deepgram",                 "https://deepgram.com/careers"),
+    ("assemblyai.com",      "AssemblyAI",               "https://boards.greenhouse.io/assemblyai"),
     ("covariant.ai",        "Covariant AI (Robotics)",  ""),
     ("physical-intelligence.ai", "Physical Intelligence", ""),
     ("figure.ai",           "Figure AI (Robotics)",     ""),
-    ("abridge.com",         "Abridge",                  "https://boards.greenhouse.io/abridge"),
+    ("abridge.com",         "Abridge",                  "https://jobs.ashbyhq.com/abridge"),
 
     # ─── QUANT / HIGH-FREQUENCY TRADING FIRMS ────────────────────────────────
     ("citadel.com",         "Citadel",                  ""),
@@ -108,13 +124,12 @@ COMPANIES = [
     ("point72.com",         "Point72",                  ""),
     ("tower-research.com",  "Tower Research Capital",   ""),
     ("virtu.com",           "Virtu Financial",          ""),
-    ("drstonex.com",        "DRW",                      ""),
-    ("drw.com",             "DRW",                      ""),
+    ("drw.com",             "DRW",                      "https://www.drw.com/work-at-drw/listings"),
     ("cubistcapital.com",   "Cubist / Point72",         ""),
     ("millennium.com",      "Millennium Management",    ""),
     ("marsoncapital.com",   "Marson Capital",           ""),
     ("gsam.com",            "Goldman Sachs Asset Mgmt", ""),
-    ("rentech.com",         "Renaissance Technologies", ""),
+    ("rentec.com",          "Renaissance Technologies", ""),
     ("iextrading.com",      "IEX",                      "https://iex.io/careers"),
 
     # ─── INVESTMENT BANKS / FINTECH ───────────────────────────────────────────
@@ -123,7 +138,7 @@ COMPANIES = [
     ("morganstanley.com",   "Morgan Stanley",           ""),
     ("bloomberg.com",       "Bloomberg",                ""),
     ("blackrock.com",       "BlackRock",                ""),
-    ("citgroup.com",        "Citigroup",                ""),
+    ("citi.com",            "Citigroup",                "https://jobs.citi.com"),
     ("barclays.com",        "Barclays",                 ""),
     ("ubs.com",             "UBS",                      ""),
     ("wellsfargo.com",      "Wells Fargo",              ""),
@@ -138,87 +153,117 @@ COMPANIES = [
 
     # ─── FINTECH STARTUPS ─────────────────────────────────────────────────────
     ("robinhood.com",       "Robinhood",                "https://boards.greenhouse.io/robinhood"),
-    ("plaid.com",           "Plaid",                    "https://boards.greenhouse.io/plaid"),
+    ("plaid.com",           "Plaid",                    "https://plaid.com/careers"),
     ("block.xyz",           "Block (Square)",           "https://boards.greenhouse.io/block"),
-    ("coinbase.com",        "Coinbase",                 "https://boards.greenhouse.io/coinbase"),
+    ("coinbase.com",        "Coinbase",                 "https://www.coinbase.com/careers"),
     ("brex.com",            "Brex",                     "https://boards.greenhouse.io/brex"),
     ("ripple.com",          "Ripple",                   ""),
     ("chime.com",           "Chime",                    "https://boards.greenhouse.io/chime"),
     ("affirm.com",          "Affirm",                   "https://boards.greenhouse.io/affirm"),
     ("klarna.com",          "Klarna",                   ""),
-    ("nerdwallet.com",      "NerdWallet",               "https://boards.greenhouse.io/nerdwallet"),
+    ("nerdwallet.com",      "NerdWallet",               "https://www.nerdwallet.com/careers/jobs"),
 
     # ─── HIGH-GROWTH CONSUMER/PLATFORM TECH ──────────────────────────────────
-    ("uber.com",            "Uber",                     "https://boards.greenhouse.io/uber"),
+    ("uber.com",            "Uber",                     "https://jobs.uber.com/en"),
     ("airbnb.com",          "Airbnb",                   "https://boards.greenhouse.io/airbnb"),
-    ("doordash.com",        "DoorDash",                 "https://boards.greenhouse.io/doordash"),
+    ("doordash.com",        "DoorDash",                 "https://careersatdoordash.com/jobs"),
     ("lyft.com",            "Lyft",                     "https://boards.greenhouse.io/lyft"),
     ("instacart.com",       "Instacart",                "https://boards.greenhouse.io/instacart"),
     ("roblox.com",          "Roblox",                   "https://boards.greenhouse.io/roblox"),
     ("figma.com",           "Figma (Adobe)",            "https://boards.greenhouse.io/figma"),
-    ("notion.so",           "Notion",                   "https://boards.greenhouse.io/notion"),
+    ("notion.so",           "Notion",                   "https://www.notion.com/careers"),
     ("airtable.com",        "Airtable",                 "https://boards.greenhouse.io/airtable"),
     ("canva.com",           "Canva",                    ""),
     ("duolingo.com",        "Duolingo",                 "https://boards.greenhouse.io/duolingo"),
-    ("quizlet.com",         "Quizlet",                  "https://boards.greenhouse.io/quizlet"),
+    ("quizlet.com",         "Quizlet",                  "https://quizlet.com/jobs"),
     ("khan.org",            "Khan Academy",             ""),
     ("reddit.com",          "Reddit",                   "https://boards.greenhouse.io/reddit"),
     ("pinterest.com",       "Pinterest",                "https://boards.greenhouse.io/pinterest"),
-    ("snap.com",            "Snap",                     "https://boards.greenhouse.io/snap"),
+    ("snap.com",            "Snap",                     "https://careers.snap.com/jobs"),
     ("x.com",               "X (Twitter)",              ""),
-    ("spotify.com",         "Spotify",                  "https://boards.greenhouse.io/spotify"),
+    ("spotify.com",         "Spotify",                  "https://www.lifeatspotify.com/jobs"),
     ("twitch.tv",           "Twitch (Amazon)",          "https://boards.greenhouse.io/twitch"),
     ("discord.com",         "Discord",                  "https://boards.greenhouse.io/discord"),
-    ("slack.com",           "Slack (Salesforce)",       "https://boards.greenhouse.io/slack"),
+    ("slack.com",           "Slack (Salesforce)",       "https://slack.com/careers"),
 
     # ─── CLOUD / ENTERPRISE INFRA ─────────────────────────────────────────────
     ("cloudflare.com",      "Cloudflare",               "https://boards.greenhouse.io/cloudflare"),
     ("datadog.com",         "Datadog",                  "https://boards.greenhouse.io/datadog"),
     ("elastic.co",          "Elastic",                  "https://boards.greenhouse.io/elastic"),
     ("mongodb.com",         "MongoDB",                  "https://boards.greenhouse.io/mongodb"),
-    ("confluent.io",        "Confluent",                "https://boards.greenhouse.io/confluent"),
-    ("hashicorp.com",       "HashiCorp (IBM)",          "https://boards.greenhouse.io/hashicorp"),
-    ("dbt.com",             "dbt Labs",                 "https://boards.greenhouse.io/dbtlabs"),
+    ("confluent.io",        "Confluent",                "https://careers.confluent.io"),
+    ("hashicorp.com",       "HashiCorp (IBM)",          "https://www.hashicorp.com/en/careers"),
+    ("dbt.com",             "dbt Labs",                 "https://www.getdbt.com/about-us/careers"),
     ("fivetran.com",        "Fivetran",                 "https://boards.greenhouse.io/fivetran"),
     ("starburst.io",        "Starburst",                "https://boards.greenhouse.io/starburst"),
     ("clickhouse.com",      "ClickHouse",               "https://boards.greenhouse.io/clickhouse"),
+
+    # ─── ADDED FROM TIER LIST — quant / HFT ──────────────────────────────────
+    ("radix-trading.com",     "Radix Trading",          ""),
+    ("arrowstreetcapital.com","Arrowstreet Capital",    ""),
+    ("pdtpartners.com",       "PDT Partners",           ""),
+    ("voleon.com",            "The Voleon Group",       ""),
+    ("xtxmarkets.com",        "XTX Markets",            ""),
+    ("aqr.com",               "AQR Capital Management",  "https://boards.greenhouse.io/aqr"),
+    ("squarepoint-capital.com","Squarepoint Capital",   "https://job-boards.greenhouse.io/squarepointcapital"),
+    ("vivcourt.com",          "VivCourt Trading",       ""),
+
+    # ─── ADDED FROM TIER LIST — big tech / platforms ─────────────────────────
+    ("nvidia.com",            "NVIDIA",                  ""),
+    ("netflix.com",           "Netflix",                 ""),
+    ("meta.com",              "Meta",                    ""),
+    ("apple.com",             "Apple",                   ""),
+    ("google.com",            "Google",                  ""),
+    ("stripe.com",            "Stripe",                  ""),
+    ("paypal.com",            "PayPal",                  ""),
+    ("asana.com",             "Asana",                   ""),
+    ("coupang.com",           "Coupang",                 "https://boards.greenhouse.io/coupang"),
+    ("linkedin.com",          "LinkedIn",                ""),
+    ("dropbox.com",           "Dropbox",                 ""),
+    ("ebay.com",              "eBay",                    ""),
+    ("atlassian.com",         "Atlassian",               ""),
+    ("booking.com",           "Booking.com",             ""),
+
+    # ─── ADDED FROM TIER LIST — finance / PE ─────────────────────────────────
+    ("blackstone.com",        "Blackstone",              ""),
+    ("capitalone.com",        "Capital One",             ""),
+
+    # ─── ADDED FROM TIER LIST (round 2) — quant firms, scraping verified ──────
+    ("tgsmc.com",             "TGS Management",          ""),
+    ("quadrature.ai",         "Quadrature Capital",      ""),
+    ("fiverings.com",         "Five Rings",              "https://boards.greenhouse.io/fiveringsllc"),
+    ("schonfeld.com",         "Schonfeld Strategic Advisors", "https://boards.greenhouse.io/schonfeld"),
+    ("mwam.com",              "Marshall Wace",           "https://boards.greenhouse.io/marshallwace"),
+    ("gresearch.com",         "G-Research",              ""),
 ]
 
 
 def main():
-    conn = sqlite3.connect(str(DB_PATH))
-    now = datetime.now(timezone.utc).isoformat()
+    import argparse
+    ap = argparse.ArgumentParser(
+        description="Seed the watched-company list into a track's autopilot.sqlite.")
+    ap.add_argument("--db", default=str(DB_PATH),
+                    help="Path to the track DB (default: derived from config.yaml).")
+    args = ap.parse_args()
 
-    added = 0
-    skipped = 0
+    # Use the real DB layer so the schema (and any migrations) are guaranteed and
+    # upserts behave exactly like the running pipeline. This also creates a fresh
+    # DB with the correct schema if one doesn't exist yet (e.g. after a clean start).
+    try:
+        import core
+    except Exception as e:
+        print(f"ERROR: cannot import core ({e}); run from the project folder.")
+        raise SystemExit(1)
+
+    db = core.DB(args.db)
+    before = len(db.list_watched())
     for domain, name, careers_url in COMPANIES:
-        domain = domain.lower()
-        existing = conn.execute(
-            "SELECT careers_url FROM companies WHERE domain=?", (domain,)
-        ).fetchone()
-
-        if existing:
-            # Only update careers_url if we have one and it's currently empty
-            if careers_url and not existing[0]:
-                conn.execute(
-                    "UPDATE companies SET careers_url=?, name=? WHERE domain=?",
-                    (careers_url, name, domain),
-                )
-                print(f"  UPDATED  {domain:45} careers_url → {careers_url}")
-            else:
-                skipped += 1
-        else:
-            conn.execute(
-                """INSERT INTO companies (domain, name, first_seen, careers_url)
-                   VALUES (?, ?, ?, ?)""",
-                (domain, name, now, careers_url),
-            )
-            print(f"  ADDED    {domain:45} {careers_url or '(will auto-discover)'}")
-            added += 1
-
-    conn.commit()
-    conn.close()
-    print(f"\nDone — {added} new companies added, {skipped} already present.")
+        db.watch(domain.lower().strip(), name, careers_url)
+    db.conn.commit()
+    after = len(db.list_watched())
+    print(f"Watchlist seeded into {args.db}")
+    print(f"  {after} companies total  ({after - before} new this run; "
+          f"{len(COMPANIES)} in seed list).")
 
 
 if __name__ == "__main__":

@@ -1,19 +1,38 @@
-# Job Autopilot (local agent)
+# Job Autopilot
 
-Drop your PDF resume in `~/Downloads/resume.pdf`, set your role targets, and the agent will:
+A local **website** for any job seeker. Open it in a browser, set up once, then find jobs and track applications from the app.
 
-1. Search every job role on your list across LinkedIn, Indeed, Jobright AI, and watched company career/ATS pages — only jobs posted inside your configured age window where the posting overlaps with your resume and role keywords.
-2. Score each posting with the ATS-inspired matcher and hard filters.
-3. Add every company it sees a relevant role from to a **watchlist**.
-4. Each day, re-scan those watched companies' careers pages (and standard ATS subdomains — Greenhouse, Lever, Workable, BambooHR) for new postings matching your role keywords.
-5. Persist state in SQLite and export `~/Downloads/job-autopilot/jobs.xlsx` so you can apply manually.
+1. Upload a resume and say what jobs you want, where, and how far back to look.
+2. Add your own scoring API key and an optional job-board scraper key.
+3. Click **Find jobs**. The app scrapes boards, scores matches against your resume, and stores them locally.
+4. Click **Sync mailbox** to read application receipts, interviews, assessments, offers, and rejections from Gmail.
 
-**Manual-apply mode is the default** (`behavior.manual_apply_only: true`). In this mode the agent does not use Easy Apply, does not fill forms, does not send emails, and does not submit applications.
+Nothing leaves this computer except the APIs you configured. **Manual-apply mode is the default** — the agent does not fill forms or submit applications.
 
-**Senior roles are filtered out automatically.** The agent skips any title containing "senior", "staff", "principal", "lead", "manager", "director", "vp", "architect", "II/III/IV", etc. and also reads the JD for required years of experience — anything above `filters.max_years_required` (default `2`) is skipped before the email goes out. Both lists are tunable in `config.yaml` under `filters:`.
+## Open the app
 
-**Experience is a hard gate.** With `filters.max_years_required: 2`, the agent skips postings requiring `3 years`, `3+ years`, `4 years`, `4+ years`, `5-7 years`, etc. before applying.
-It also catches common variants such as `minimum of 8 years`, `eight to ten years`, `8 plus years`, `8 or more years`, and `8 years minimum`.
+```bash
+cd job-autopilot
+python3 -m pip install --user -r requirements.txt
+python3 autopilot.py dashboard
+```
+
+That opens **http://127.0.0.1:8787/** in your browser.
+
+- First visit: a setup page (resume, roles, location, lookback, runs per day, API keys).
+- After setup: **Overview**, **Applications**, and **Mail** — plus **Find jobs**, **Sync mailbox**, and **Settings**.
+
+If `python3` is missing PyYAML, use the project venv:
+
+```bash
+~/.venvs/job-autopilot/bin/python dashboard.py
+```
+
+## What the app does
+
+The search only includes jobs posted inside your lookback window whose posting overlaps with your resume and role keywords. Senior titles and postings above `filters.max_years_required` are skipped. Results land in SQLite and `jobs.xlsx` for you to apply by hand.
+
+**Experience is a hard gate.** With `filters.max_years_required: 2`, the agent skips postings requiring `3 years`, `3+ years`, `4 years`, `4+ years`, `5-7 years`, etc. before they enter the ledger.
 
 **LinkedIn and Indeed detail enrichment.** Those sources often return title-only search rows. When a thin LinkedIn/Indeed row has a title-only score above `behavior.detail_enrich_min_score`, the agent fetches the full posting before the final experience and score checks.
 
@@ -86,32 +105,14 @@ The `xai:` section name is historical — keep it; only the values inside change
 - macOS with Python 3.10+ (`python3 --version`)
 - Your resume as a 1-page PDF, placed at `~/Downloads/resume.pdf` (or any path you point `resume_pdf` at)
 
-## 5-minute install
+## 5-minute install (CLI, optional)
+
+The browser app is the main interface. These commands are optional:
 
 ```bash
-# 1. Put the project in Downloads.
-cd ~/Downloads
-# (copy the job-autopilot/ folder here)
-cd job-autopilot
-
-# 2. Install Python deps.
-python3 -m pip install --user -r requirements.txt
-
-# 3. Make sure your resume is in place.
-ls -lh ~/Downloads/resume.pdf
-
-# 4. Create your config.
-python3 autopilot.py init
-# -> writes config.yaml. Open it, fill in the blanks (see next section).
-
-# 5. Scrape, score, and export Excel.
-python3 autopilot.py scout
-
-# 6. Same scrape/export pass; safe in manual mode.
-python3 autopilot.py run
-
-# 7. When happy, start the daemon.
-python3 autopilot.py daemon
+python3 autopilot.py init     # same setup questions in the terminal
+python3 autopilot.py scout    # same as Find jobs
+python3 autopilot.py dashboard
 ```
 
 ## config.yaml — what to fill in
@@ -146,6 +147,8 @@ python3 autopilot.py scout              # scrape + rank + export jobs.xlsx
 python3 autopilot.py run                # same: scrape + rank + export jobs.xlsx in manual mode
 python3 autopilot.py daemon             # loop forever, scrape/export only in manual mode
 python3 autopilot.py status             # DB stats
+python3 autopilot.py mail-sync          # scan email and update jobs.xlsx statuses
+python3 autopilot.py dashboard          # local command center (mailbox + funnel)
 python3 autopilot.py watch acme.com Acme    # manually pre-watch a company
 python3 autopilot.py unwatch acme.com       # stop watching
 python3 autopilot.py list-watched           # show watchlist
@@ -206,8 +209,8 @@ To stop: `launchctl unload ~/Library/LaunchAgents/com.autopilot.plist`.
 
 When the pipeline sees a relevant job at `acme.com`, it auto-marks Acme as watched. The first watched-company scan resolves one trusted careers source, then caches it in SQLite:
 
-- ATS boards first: `https://boards.greenhouse.io/acme`, `https://jobs.lever.co/acme`, `https://apply.workable.com/acme`, `https://acme.bamboohr.com/jobs`
-- Official site fallback: `https://acme.com/careers`, `https://acme.com/jobs`, and `www` variants
+- Official site pages first: `https://acme.com/careers`, `https://acme.com/jobs`, and `www` variants.
+- Trusted ATS fallback: Greenhouse, Lever, Workable, BambooHR, Ashby, SmartRecruiters, Jobvite, iCIMS, Breezy, Pinpoint, and Workday-hosted boards.
 
 Future runs scan only the cached URL for that company. URLs outside the company domain or trusted ATS hosts are rejected, and duplicate job links are normalized before export.
 
@@ -231,6 +234,31 @@ python3 autopilot.py watch stripe.com Stripe
 | Watched company discovery candidates | `source_limits.watched_company_discovery_candidates` | 8, then cache one canonical URL |
 | Auto-add seen companies to watchlist | `behavior.auto_watch_companies` | true |
 
+## Mail status tracking
+
+`python3 autopilot.py mail-sync` connects to the configured mailbox in read-only IMAP mode, classifies job-related emails, matches them to known company/title rows, updates SQLite, and re-exports `jobs.xlsx`.
+
+It can mark `applied`, `rejected`, `assessment`, `interview`, `offer`, and `withdrawn`. Ambiguous emails are recorded in the local `mail_events` table without changing the job row.
+
+Open the local web app to see the funnel, mailbox activity, and pipeline:
+
+```bash
+python3 autopilot.py dashboard
+```
+
+That serves `http://127.0.0.1:8787/`. **Find jobs** runs a scout. **Sync mailbox** runs the same read-only IMAP pass as `mail-sync`.
+
+To run it automatically from `daemon`, add this to `config.yaml` and use a Gmail App Password with IMAP enabled:
+
+```yaml
+mail_tracking:
+  enabled: true
+  username: "you@gmail.com"
+  app_password: "xxxx xxxx xxxx xxxx"
+  mailboxes: ["INBOX", "[Gmail]/All Mail"]
+  interval_minutes: 60
+```
+
 ## Troubleshooting
 
 **"resume_pdf not found"** — fix the `resume_pdf:` path in `config.yaml`. Use absolute path or `~/Downloads/...`.
@@ -244,8 +272,12 @@ python3 autopilot.py watch stripe.com Stripe
 ```
 job-autopilot/
 ├── autopilot.py        # CLI entrypoint
+├── dashboard.py        # local web app (http://127.0.0.1:8787/)
+├── dashboard_static/   # app UI
+├── setup_wizard.py     # first-run setup (browser + CLI)
 ├── core.py             # config, DB, ATS-style score, filters, Excel export
-├── sources.py          # LinkedIn, Indeed, Jobright + careers scanner
+├── sources.py          # LinkedIn, Indeed, Jobright + optional board APIs
+├── mail_tracker.py     # read-only IMAP application-status tracker
 ├── requirements.txt
 ├── config.example.yaml
 └── README.md
