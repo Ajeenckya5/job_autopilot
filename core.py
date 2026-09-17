@@ -1074,10 +1074,12 @@ def llm_score_resume_match(
     roles: list[dict],
     job: dict,
 ) -> dict | None:
-    """LLM resume-JD match focused on key requirements only (low token use).
+    """LLM resume-JD match focused on key requirements only.
 
-    Extracts only the qualifications/responsibilities section from the JD
-    instead of sending the full description. Resume is capped at 1500 chars.
+    Prefers the qualifications/responsibilities section of the JD over the full
+    description. The resume is sent in full: at ~4-6k chars it is a rounding
+    error against these models' context windows, and clipping it hid most of the
+    candidate's experience from the scorer.
     Returns None on failure.
     """
     title = (job.get("title") or "").strip()
@@ -1085,15 +1087,15 @@ def llm_score_resume_match(
     if not desc or len(desc) < 150:
         return None
 
-    # Use only the requirements section — much cheaper than full JD
+    # Prefer the requirements section, but keep enough of it to judge fit.
     req_section, _ = _split_required_preferred(desc)
     jd_text = req_section.strip() if len(req_section.strip()) >= 200 else desc
-    jd_text = jd_text[:1800]
+    jd_text = jd_text[:6000]
 
     user_msg = (
         f"JOB TITLE: {title}\n\n"
         f"KEY REQUIREMENTS:\n{jd_text}\n\n"
-        f"CANDIDATE SKILLS:\n{resume_text[:1500]}"
+        f"CANDIDATE RESUME (full):\n{resume_text[:20000]}"
     )
     try:
         result = grok.chat_json(_LLM_MATCH_SYSTEM, user_msg, timeout=60)
@@ -2484,14 +2486,18 @@ def llm_title_match(grok, resume: str, roles: list[dict], job: dict) -> bool:
         )
         quals_text = m.group(1).strip() if m else desc[:900]
 
-    # Pull candidate skills summary from resume
+    # Pull candidate skills from the resume, falling back to the whole resume.
+    # A missed regex used to send the gate no candidate context at all, which
+    # made it judge on title alone.
     resume_skills = ""
     m = re.search(
         r"(?:skills?|technologies?|tools?|expertise)\s*[:\-]?\s*(.*?)(?:\n\s*\n|$)",
         resume, re.I | re.DOTALL,
     )
     if m:
-        resume_skills = m.group(1)[:300].strip()
+        resume_skills = m.group(1)[:2000].strip()
+    if len(resume_skills) < 80:
+        resume_skills = (resume or "")[:4000].strip()
 
     system = (
         "You are a job relevance pre-filter. "

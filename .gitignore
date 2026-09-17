@@ -1,7 +1,8 @@
 # Personal config with credentials — use config.example.yaml as template
+# The glob covers every per-track config (config_ml, config_ops, config_ai,
+# config_ie, ...); config.example.yaml is dot-separated and stays tracked.
 config.yaml
-config_ml.yaml
-config_ops.yaml
+config_*.yaml
 *.yaml.bak*
 *.bak
 *.bak-*
@@ -21,10 +22,16 @@ chunk_stats.json
 logs/
 *.log
 
-# Resumes (personal documents)
+# Resumes (personal documents). resume_*.pdf also covers the copies that
+# ci/build_config.py decodes from the RESUME_*_B64 secrets at runtime.
 resumes/
 resume_ml.txt
 resume_ops.txt
+resume_*.pdf
+*.pdf
+
+# CI scratch output (workbooks, sqlite, browser profile)
+out/
 
 # Local launchd / install leftovers
 .initialized

@@ -1,0 +1,213 @@
+"""Build a track config for a CI run.
+
+Secrets never live in the repo: keys arrive as env vars and the resume arrives
+base64-encoded, both from GitHub Actions secrets. Writes config_<track>.yaml
+next to autopilot.py and drops the resume PDF where that config points.
+
+    python ci/build_config.py ai
+"""
+import base64
+import os
+import pathlib
+import sys
+
+TRACKS = {
+    "ai": {
+        "label": "ML & AI",
+        "resume_env": "RESUME_AI_B64",
+        "roles": [
+            "Machine Learning Engineer", "AI Engineer", "Applied AI Engineer",
+            "Applied Machine Learning Engineer", "Applied Scientist",
+            "Applied Scientist Machine Learning", "AI Agent Engineer",
+            "Agentic AI Engineer", "AI Research Engineer", "AI Systems Engineer",
+            "Generative AI Engineer", "LLM Engineer", "LLM Application Engineer",
+            "NLP Engineer", "Deep Learning Engineer", "Data Scientist Machine Learning",
+            "New Grad Machine Learning Engineer", "New Grad AI Engineer",
+            "Entry Level Machine Learning Engineer",
+            "Early Career Machine Learning Engineer", "Forward Deployed Engineer",
+            "Fall 2026 co-op Machine Learning", "Fall 2026 co-op AI",
+            "Fall 2026 co-op Data Science", "Fall 2026 co-op Software Engineer",
+        ],
+    },
+    "ie": {
+        "label": "Industrial & Ops",
+        "resume_env": "RESUME_IE_B64",
+        "roles": [
+            "Industrial Engineer", "Process Engineer", "Operations Engineer",
+            "Operations Analyst", "Continuous Improvement Engineer",
+            "Project Engineer", "Manufacturing Engineer", "Supply Chain Analyst",
+            "Quality Engineer", "Fall 2026 co-op Industrial Engineer",
+            "Fall 2026 co-op Operations", "Fall 2026 co-op Process Engineer",
+            "Fall 2026 coop Operations Engineer",
+        ],
+    },
+}
+
+# Probed live on 2026-09-16; every entry answered HTTP 200. Free endpoints churn
+# constantly (models get retired or rate-limited upstream mid-run), so the chain
+# is deliberately deep — the client falls through to the next on any error.
+GEMINI_MODELS = [
+    "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash",
+    "gemini-3.5-flash-lite", "gemini-3.1-flash-lite",
+    "gemini-3.1-flash-lite-preview", "gemini-3-flash-preview",
+    "gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest",
+    "gemma-4-26b-a4b-it",
+]
+OPENROUTER_MODELS = [
+    "nvidia/nemotron-3.5-lightning:free", "dots-studio/dots-3-note-preview:free",
+    "inclusionai/ling-3.0-flash-fin:free", "inclusionai/ling-3.0-flash-sante:free",
+    "inclusionai/ling-3.0-flash-vl:free",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "nvidia/nemotron-3-super-120b-a12b:free", "nex-agi/nex-n2.5-pro:free",
+    "liquid/lfm-2.5-2.6b:free", "poolside/laguna-xs-2.1:free",
+    "cohere/north-mini-code:free",
+]
+MISTRAL_MODELS = [
+    "ministral-14b-latest", "ministral-8b-latest", "ministral-3b-latest",
+    "codestral-latest", "mistral-code-latest",
+]
+
+BLOCK_TITLES = [
+    "senior", "sr.", "sr ", " sr", "staff", "principal", "lead ", "head of",
+    "director", "manager", "vp ", "vice president", "architect", " ii", " iii",
+    " iv", "level 2", "level 3", "ai content writer", "content writer",
+    "business analyst", "ai operations specialist", "operations specialist",
+]
+
+
+def main() -> int:
+    track = (sys.argv[1] if len(sys.argv) > 1 else "").lower()
+    if track not in TRACKS:
+        print(f"usage: build_config.py [{'|'.join(TRACKS)}]", file=sys.stderr)
+        return 2
+    spec = TRACKS[track]
+
+    gemini = os.environ.get("GEMINI_API_KEY", "").strip()
+    openrouter = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    mistral = os.environ.get("MISTRAL_API_KEY", "").strip()
+    if not any((gemini, openrouter, mistral)):
+        print("no LLM keys in env — set GEMINI_API_KEY / OPENROUTER_API_KEY / "
+              "MISTRAL_API_KEY as repo secrets", file=sys.stderr)
+        return 1
+
+    here = pathlib.Path(__file__).resolve().parent.parent
+    out_dir = here / "out" / track
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    resume_b64 = os.environ.get(spec["resume_env"], "").strip()
+    if not resume_b64:
+        print(f"{spec['resume_env']} is empty — add the resume PDF as that repo "
+              f"secret (base64). Without it the scorer has nothing to match against.",
+              file=sys.stderr)
+        return 1
+    resume_pdf = here / f"resume_{track}.pdf"
+    resume_pdf.write_bytes(base64.b64decode(resume_b64))
+
+    providers = []
+    for m in GEMINI_MODELS:
+        if gemini:
+            providers.append(("gemini", gemini, m))
+    for m in OPENROUTER_MODELS:
+        if openrouter:
+            providers.append(("openrouter", openrouter, m))
+    for m in MISTRAL_MODELS:
+        if mistral:
+            providers.append(("mistral", mistral, m))
+
+    def q(s: str) -> str:
+        return '"' + str(s).replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+    lines = [
+        f"# Generated by ci/build_config.py for track {track!r} — do not commit.",
+        "candidate:",
+        '  name: "Ajeenckya Mahadik"',
+        '  email: "ajeenckyam@gmail.com"',
+        '  phone: ""',
+        '  linkedin: "https://linkedin.com/in/ajeenckya-mahadik"',
+        "",
+        f"resume_pdf: {q(str(resume_pdf))}",
+        "",
+        "roles:",
+    ]
+    for kw in spec["roles"]:
+        lines.append(f'  - {{keywords: {q(kw)}, location: "United States"}}')
+    lines += [
+        "",
+        "schedule_minutes: 360",
+        "max_per_run: 5000",
+        "source_limits:",
+        "  linkedin_max_jobs_per_role: 1000",
+        "  indeed_max_pages_per_role: 100",
+        "  jobright_max_pages_per_role: 250",
+        "  watched_company_discovery_candidates: 8",
+        "throttle_seconds: 60",
+        f"output_dir: {q(str(out_dir))}",
+        "",
+        "llm_providers:",
+    ]
+    for ptype, key, model in providers:
+        lines.append(f"  - {{type: {q(ptype)}, api_key: {q(key)}, model: {q(model)}}}")
+    lines += [
+        "",
+        "gmail:",
+        '  address: "ajeenckyam@gmail.com"',
+        f'  app_password: {q(os.environ.get("GMAIL_APP_PASSWORD", ""))}',
+        f'  send: {str(bool(os.environ.get("GMAIL_APP_PASSWORD"))).lower()}',
+        "",
+        "mail_tracking:",
+        "  enabled: false",
+        '  provider: "auto"',
+        '  imap_host: ""',
+        "  imap_port: 993",
+        '  username: ""',
+        '  app_password: ""',
+        '  mailboxes: ["INBOX"]',
+        "  lookback_days: 90",
+        "  max_messages_per_mailbox: 500",
+        "  min_match_score: 70",
+        "  interval_minutes: 60",
+        "",
+        "anymail_finder:",
+        '  api_key: ""',
+        "",
+        "filters:",
+        "  block_title_keywords:",
+    ]
+    for t in BLOCK_TITLES:
+        lines.append(f"    - {q(t)}")
+    lines += [
+        "  max_years_required: 3",
+        "  block_staffing_agencies: true",
+        "",
+        "behavior:",
+        "  manual_apply_only: true",
+        "  tailor_resume: false",
+        "  require_verified_email: false",
+        "  auto_watch_companies: true",
+        "  max_age_hours: 12",
+        "  min_resume_match_score: 35",
+        "  detail_enrich_min_score: 55",
+        "",
+        "auto_apply:",
+        "  enabled: false",
+        "  submit: false",
+        "  email_fallback: false",
+        f'  browser_user_data_dir: {q(str(out_dir / "browser-profile"))}',
+        f'  screenshot_dir: {q(str(out_dir / "applications"))}',
+        "  headless: true",
+        "  slow_mo_ms: 100",
+        "  max_steps: 5",
+        "  answers: {}",
+        "",
+    ]
+
+    cfg_path = here / f"config_{track}.yaml"
+    cfg_path.write_text("\n".join(lines))
+    print(f"wrote {cfg_path.name}: {len(spec['roles'])} roles, "
+          f"{len(providers)} providers, resume={resume_pdf.name} "
+          f"({resume_pdf.stat().st_size} bytes), output_dir={out_dir}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
