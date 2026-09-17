@@ -2610,7 +2610,21 @@ class GeminiClient:
             if r.status_code >= 400:
                 raise RuntimeError(f"Gemini error {r.status_code}: {r.text[:300]}")
             data = r.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            cand = (data.get("candidates") or [{}])[0]
+            parts = (cand.get("content") or {}).get("parts") or []
+            text = "".join(p.get("text", "") for p in parts).strip()
+            if text:
+                return text
+            # A thinking model can spend the entire output budget on reasoning
+            # and hand back a candidate carrying no parts at all. Give it room
+            # to actually answer before giving up on this provider.
+            reason = cand.get("finishReason", "")
+            if reason == "MAX_TOKENS" and attempt < 2:
+                body["generationConfig"]["maxOutputTokens"] = max_tokens * 4 * (attempt + 1)
+                continue
+            raise RuntimeError(
+                f"Gemini returned no text (finishReason={reason or 'unknown'})"
+            )
         raise RuntimeError("Gemini request failed after 3 attempts")
 
     def chat_json(self, system: str, user: str, **kw) -> dict:
