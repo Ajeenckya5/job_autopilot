@@ -1,0 +1,10 @@
+[
+  { "source": "greenhouse", "token": "onemedical", "name": "One Medical" },
+  { "source": "greenhouse", "token": "oscar", "name": "Oscar Health" },
+  { "source": "greenhouse", "token": "natera", "name": "Natera" },
+  { "source": "greenhouse", "token": "mavenclinic", "name": "Maven Clinic" },
+  { "source": "greenhouse", "token": "flatironhealth", "name": "Flatiron Health" },
+  { "source": "greenhouse", "token": "omadahealth", "name": "Omada Health" },
+  { "source": "greenhouse", "token": "doximity", "name": "Doximity" },
+  { "source": "greenhouse", "token": "zocdoc", "name": "Zocdoc" }
+]

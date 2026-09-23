@@ -60,3 +60,8 @@ env/
 # Editor
 .vscode/
 .idea/
+
+# Worker dependencies
+worker/node_modules/
+
+worker/.wrangler/
