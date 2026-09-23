@@ -1,0 +1,15 @@
+name = "jobs-api"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[triggers]
+crons = ["17 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "jobs"
+database_id = "local-jobs"
+
+[[kv_namespaces]]
+binding = "CONFIG"
+id = "local-config"

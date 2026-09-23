@@ -60,3 +60,10 @@ env/
 # Editor
 .vscode/
 .idea/
+# Site build
+site/node_modules/
+site/coverage/
+site/public/feeds/
+
+# Test output
+site/test-results/
