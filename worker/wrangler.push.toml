@@ -1,0 +1,17 @@
+name = "push"
+main = "src/push.js"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[triggers]
+crons = ["17 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "jobs"
+database_id = "df04bc5d-9fad-4cc5-9d1f-c79b9a0b2896"
+
+[[kv_namespaces]]
+binding = "CONFIG"
+id = "58de046ae4204473a76cf75b16188250"

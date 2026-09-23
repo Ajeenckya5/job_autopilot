@@ -1,0 +1,13 @@
+{
+  "name": "jobs-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node dev-server.js",
+    "test": "node --test test/api.test.js"
+  },
+  "dependencies": {
+    "hono": "4.9.8",
+    "web-push": "3.6.7"
+  }
+}
