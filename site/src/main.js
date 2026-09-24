@@ -35,16 +35,20 @@ function store() {
     const data = JSON.parse(localStorage.getItem(KEY) || "null");
     if (!data || !data.resume_text) return data;
     const compact = absorbResume(data);
-    localStorage.setItem(KEY, JSON.stringify(compact));
-    mirror();
+    const next = JSON.stringify(compact);
+    if (next !== JSON.stringify(data)) {
+      localStorage.setItem(KEY, next);
+      mirror(compact);
+    }
     return compact;
   } catch (_) {
     return null;
   }
 }
 function saveStore(data) {
-  localStorage.setItem(KEY, JSON.stringify(absorbResume(data)));
-  mirror();
+  const compact = absorbResume(data);
+  localStorage.setItem(KEY, JSON.stringify(compact));
+  mirror(compact);
 }
 function loadJobs() {
   return jobCache;
@@ -53,20 +57,25 @@ function trackedJobs(rows) {
   return (rows || []).filter((job) => job && job.status && job.status !== "new");
 }
 
+let storeDb = null;
+let pickedJobId = "";
+
 function saveJobs(rows) {
   jobCache = Array.isArray(rows) ? rows : [];
   const snapshot = trackedJobs(jobCache);
-  persistChain = persistChain
-    .then(async () => {
-      const db = await openStore();
-      await writeSavedJobs(db, snapshot);
-    })
-    .catch(() => {});
-  return persistChain;
+  const write = storeDb
+    ? writeSavedJobs(storeDb, snapshot)
+    : openStore().then((db) => {
+      storeDb = db;
+      return writeSavedJobs(db, snapshot);
+    });
+  persistChain = persistChain.then(() => write).catch(() => {});
+  return write;
 }
 
-function mirror() {
-  openStore().then((db) => db.put("kv", store(), "setup")).catch(() => {});
+function mirror(snapshot) {
+  if (!snapshot) return;
+  openStore().then((db) => db.put("kv", snapshot, "setup")).catch(() => {});
 }
 
 function profileFrom(data) {
@@ -141,7 +150,7 @@ function transitionName(id, used) {
 
 function jobCard(job, trends = new Map(), usedNames = new Set()) {
   const li = document.createElement("li");
-  li.className = "job";
+  li.className = job.id && job.id === pickedJobId ? "job picked" : "job";
   li.dataset.jobId = job.id || "";
   if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
     const name = transitionName(job.id, usedNames);
@@ -1266,11 +1275,13 @@ function bootChrome() {
     if (index < 0) index = 0;
     if (key === "j" || key === "k") {
       index = key === "j" ? Math.min(cards.length - 1, index + 1) : Math.max(0, index - 1);
+      pickedJobId = cards[index].dataset.jobId || "";
       cards.forEach((card) => card.classList.remove("picked"));
       cards[index].classList.add("picked");
       cards[index].scrollIntoView({ block: "nearest" });
       return;
     }
+    pickedJobId = cards[index].dataset.jobId || "";
     if (!cards[index].classList.contains("picked")) cards[index].classList.add("picked");
     const press = (label) => [...cards[index].querySelectorAll("button")].find((button) => button.textContent === label)?.click();
     if (key === "s") press("Save");
@@ -1287,6 +1298,7 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 bootWelcome();
 bootChrome();
 openStore().then(async (db) => {
+  storeDb = db;
   await enforceStorageBudget();
   const loaded = await migrateLegacyJobs(db);
   const tracked = trackedJobs(loaded);

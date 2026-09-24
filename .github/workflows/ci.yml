@@ -3,7 +3,6 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main]
 
 permissions:
   contents: read
@@ -31,7 +30,7 @@ jobs:
       - name: Install Playwright
         run: npx playwright install --with-deps chromium webkit
       - name: Playwright
-        run: npx playwright test e2e/journey.spec.js e2e/storage.spec.js e2e/keyboard.spec.js e2e/count.spec.js
+        run: npx playwright test e2e/journey.spec.js e2e/storage.spec.js e2e/keyboard.spec.js e2e/count.spec.js e2e/tracker.spec.js
         env:
           CI: "true"
 

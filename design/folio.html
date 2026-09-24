@@ -37,9 +37,17 @@
     q { color: var(--muted); }
     .met { color: var(--good); } .partial { color: var(--warn); } .missing { color: var(--bad); }
     .error { color: var(--bad); }
+    .screens { display: flex; gap: 12px; flex-wrap: wrap; margin: 14px 0 0; }
+    .screens a { color: inherit; }
+    .dark-board { --bg: #101210; --surface: #161916; --ink: #f3f4ef; --muted: #a7ada3; --rule: #f3f4ef; --soft: #2a2e2a; --accent: #8fd0aa; --good: #8fd0aa; --warn: #e2c07a; --bad: #f0a8a8; background: var(--bg); color: var(--ink); padding: 16px; margin-top: 28px; }
     @media (max-width: 640px) {
       h1 { font-size: 34px; }
       .wrap { padding: 14px 12px 36px; }
+      table, thead, tbody, tr, th, td { display: block; width: 100%; }
+      thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+      tr { padding: 12px 0; border-bottom: 1px solid var(--soft); }
+      td { border: 0; padding: 2px 0; }
+      td.num { font-size: 22px; }
     }
   </style>
 </head>
@@ -48,6 +56,15 @@
     <p class="kicker">Direction · Folio</p>
     <h1>Set like a contents page</h1>
     <p class="lede">Black rules, no rounded cards. Scores sit in a column. The tracker is a list, not a board.</p>
+    <nav class="screens">
+      <a href="#onboarding">Onboarding</a>
+      <a href="#home">Home</a>
+      <a href="#detail">Detail</a>
+      <a href="#tracker">Tracker</a>
+      <a href="#empty">Empty</a>
+      <a href="#error">Error</a>
+      <a href="#dark">Dark</a>
+    </nav>
 
     <section class="screen" id="onboarding">
       <p class="label">Onboarding</p>
@@ -118,6 +135,44 @@
       <p class="error">The job list could not be loaded. Your saved roles are unchanged.</p>
       <button class="btn primary" type="button">Try again</button>
     </section>
+
+    <div class="dark-board" id="dark">
+      <p class="label">Dark</p>
+      <section class="screen" id="home-dark">
+        <p class="label">Home</p>
+        <div class="row"><h2>Closest matches</h2><button class="btn primary" type="button">Search</button></div>
+        <p class="muted">Found 18 roles.</p>
+        <table>
+          <tbody>
+            <tr>
+              <td><strong>Staff Machine Learning Engineer</strong><br><span class="muted">Northwind · Remote</span></td>
+              <td>3 of 5 must-haves met</td>
+              <td class="num">91</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section class="screen" id="tracker-dark">
+        <p class="label">Tracker</p>
+        <h2>Applications</h2>
+        <table>
+          <tbody>
+            <tr><td>Applied</td><td>ML Engineer · Northwind</td><td>Follow up · 7 days</td></tr>
+            <tr><td>Interview</td><td>Applied Scientist · Northwind</td><td>Thursday</td></tr>
+          </tbody>
+        </table>
+      </section>
+      <section class="screen" id="empty-dark">
+        <p class="label">Empty</p>
+        <h2>No roles yet</h2>
+        <p class="lede">Search asks for up to 300 matching roles.</p>
+      </section>
+      <section class="screen" id="error-dark">
+        <p class="label">Error</p>
+        <h2>Search is unavailable</h2>
+        <p class="error">The job list could not be loaded. Your saved roles are unchanged.</p>
+      </section>
+    </div>
   </div>
   <script>if (new URLSearchParams(location.search).get("theme") === "dark") document.documentElement.dataset.theme = "dark";</script>
 </body>

@@ -40,11 +40,16 @@
     .col { min-width: 180px; }
     .col strong { font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 22px; }
     .error { color: var(--bad); }
+    .screens { display: flex; gap: 14px; flex-wrap: wrap; margin: 16px 0 0; }
+    .screens a { color: var(--accent); }
+    .dark-board { --bg: #12100e; --surface: #1c1916; --ink: #f4ead8; --muted: #b5a48c; --rule: #3a3228; --accent: #d4b483; --good: #b7d7c4; --warn: #e2c07a; --bad: #f0b4b0; background: var(--bg); color: var(--ink); padding: 20px 16px; margin-top: 36px; }
     @media (max-width: 640px) {
       h1 { font-size: 42px; }
       h2 { font-size: 28px; }
       .score { font-size: 52px; }
       .hero { grid-template-columns: 1fr; }
+      .board { flex-direction: column; }
+      .col { min-width: 0; width: 100%; }
       .wrap { padding: 20px 14px 48px; }
     }
   </style>
@@ -54,6 +59,15 @@
     <p class="kicker">Direction · Carbon</p>
     <h1>Large type, quiet gold.</h1>
     <p class="lede">Didot headlines, cream paper, one brass accent. Scores are the loudest thing on the page.</p>
+    <nav class="screens">
+      <a href="#onboarding">Onboarding</a>
+      <a href="#home">Home</a>
+      <a href="#detail">Detail</a>
+      <a href="#tracker">Tracker</a>
+      <a href="#empty">Empty</a>
+      <a href="#error">Error</a>
+      <a href="#dark">Dark</a>
+    </nav>
 
     <section class="screen" id="onboarding">
       <p class="label">Onboarding</p>
@@ -121,6 +135,36 @@
       <p class="error">The job list could not be loaded. Your saved roles are unchanged.</p>
       <button class="btn primary" type="button">Try again</button>
     </section>
+
+    <div class="dark-board" id="dark">
+      <p class="label">Dark</p>
+      <section class="screen">
+        <p class="label">Home</p>
+        <article class="hero">
+          <div class="score">91</div>
+          <div>
+            <strong>Staff Machine Learning Engineer</strong>
+            <p class="meta">Northwind · Remote</p>
+          </div>
+        </article>
+      </section>
+      <section class="screen">
+        <p class="label">Tracker</p>
+        <div class="board">
+          <div class="col"><strong>Applied</strong><p class="meta">ML Engineer · 7 days</p></div>
+          <div class="col"><strong>Interview</strong><p class="meta">Applied Scientist · Thursday</p></div>
+        </div>
+      </section>
+      <section class="screen">
+        <p class="label">Empty</p>
+        <h2>No roles yet</h2>
+      </section>
+      <section class="screen">
+        <p class="label">Error</p>
+        <h2>Search is unavailable</h2>
+        <p class="error">The job list could not be loaded. Your saved roles are unchanged.</p>
+      </section>
+    </div>
   </div>
   <script>if (new URLSearchParams(location.search).get("theme") === "dark") document.documentElement.dataset.theme = "dark";</script>
 </body>

@@ -62,6 +62,7 @@ env/
 .idea/
 # Site build
 site/node_modules/
+worker/node_modules/
 site/coverage/
 site/public/feeds/
 

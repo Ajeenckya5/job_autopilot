@@ -45,6 +45,9 @@
     .col strong { display: block; font-size: 13px; margin-bottom: 8px; }
     .note { font-size: 14px; margin: 4px 0 0; }
     .error { color: var(--bad); }
+    .screens { display: flex; gap: 12px; flex-wrap: wrap; margin: 14px 0 0; }
+    .screens a { color: var(--accent); }
+    .dark-board { --bg: #1a1714; --surface: #241f1b; --ink: #f3eee6; --muted: #b7ad9f; --rule: #3a332c; --accent: #e08a62; --good: #8fbfa4; --warn: #e2c07a; --bad: #f0a3a3; --shadow: none; background: var(--bg); color: var(--ink); padding: 16px; margin-top: 28px; border-radius: var(--radius); }
     @media (max-width: 640px) {
       h1 { font-size: 32px; }
       .board { grid-template-columns: 1fr; }
@@ -57,6 +60,15 @@
     <p class="kicker">Direction · Paper</p>
     <h1>Editorial and calm</h1>
     <p class="lede">Warm paper, ink, and one accent. A serif for headlines, a sans for the interface, tabular scores.</p>
+    <nav class="screens">
+      <a href="#onboarding">Onboarding</a>
+      <a href="#home">Home</a>
+      <a href="#detail">Detail</a>
+      <a href="#tracker">Tracker</a>
+      <a href="#empty">Empty</a>
+      <a href="#error">Error</a>
+      <a href="#dark">Dark</a>
+    </nav>
 
     <section class="screen" id="onboarding">
       <p class="label">Onboarding</p>
@@ -123,6 +135,35 @@
       <p class="error">The job list could not be loaded. Your saved roles are unchanged.</p>
       <button class="btn primary" type="button">Try again</button>
     </section>
+
+    <div class="dark-board" id="dark">
+      <p class="label">Dark</p>
+      <section class="screen">
+        <p class="label">Home</p>
+        <h2>Closest matches</h2>
+        <article class="card">
+          <div><strong>Staff Machine Learning Engineer</strong><p class="meta">Northwind · Remote</p></div>
+          <div class="score">91</div>
+        </article>
+      </section>
+      <section class="screen">
+        <p class="label">Tracker</p>
+        <div class="board">
+          <div class="col"><strong>Applied · 1</strong><p>ML Engineer</p><p class="note">Follow up · 7 days</p></div>
+          <div class="col"><strong>Interview · 1</strong><p>Applied Scientist</p><p class="note">Thursday</p></div>
+        </div>
+      </section>
+      <section class="screen">
+        <p class="label">Empty</p>
+        <h2>No roles yet</h2>
+        <p class="lede">Search asks for up to 300 matching roles.</p>
+      </section>
+      <section class="screen">
+        <p class="label">Error</p>
+        <h2>Search is unavailable</h2>
+        <p class="error">The job list could not be loaded. Your saved roles are unchanged.</p>
+      </section>
+    </div>
   </div>
   <script>if (new URLSearchParams(location.search).get("theme") === "dark") document.documentElement.dataset.theme = "dark";</script>
 </body>

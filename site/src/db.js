@@ -4,16 +4,24 @@ const DB_NAME = "job-autopilot";
 const DB_VERSION = 4;
 const LEGACY_JOBS = "jobAutopilotJobs";
 
+let connection = null;
+
 export function openStore() {
-  return openDB(DB_NAME, DB_VERSION, {
-    upgrade(db) {
-      if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
-      if (!db.objectStoreNames.contains("jobs")) db.createObjectStore("jobs", { keyPath: "id" });
-      if (!db.objectStoreNames.contains("shards")) db.createObjectStore("shards");
-      if (!db.objectStoreNames.contains("feed")) db.createObjectStore("feed", { keyPath: "id" });
-      if (!db.objectStoreNames.contains("llm-cache")) db.createObjectStore("llm-cache", { keyPath: "key" });
-    },
-  });
+  if (!connection) {
+    connection = openDB(DB_NAME, DB_VERSION, {
+      upgrade(db) {
+        if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
+        if (!db.objectStoreNames.contains("jobs")) db.createObjectStore("jobs", { keyPath: "id" });
+        if (!db.objectStoreNames.contains("shards")) db.createObjectStore("shards");
+        if (!db.objectStoreNames.contains("feed")) db.createObjectStore("feed", { keyPath: "id" });
+        if (!db.objectStoreNames.contains("llm-cache")) db.createObjectStore("llm-cache", { keyPath: "key" });
+      },
+    }).catch((error) => {
+      connection = null;
+      throw error;
+    });
+  }
+  return connection;
 }
 
 export async function readSavedJobs(db) {
