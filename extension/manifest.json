@@ -1,0 +1,66 @@
+{
+  "manifest_version": 3,
+  "name": "Job Autopilot capture",
+  "version": "1.0.0",
+  "description": "Saves job cards you are already viewing. It does not browse or log in for you.",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": [
+    "https://www.linkedin.com/jobs/*",
+    "https://www.google.com/search*",
+    "https://jobright.ai/*",
+    "https://*.greenhouse.io/*",
+    "https://jobs.lever.co/*",
+    "https://jobs.ashbyhq.com/*"
+  ],
+  "externally_connectable": {
+    "matches": ["https://ajeenckya5.github.io/*", "http://127.0.0.1/*"]
+  },
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "Save jobs on this page" },
+    "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/jobs/*",
+        "https://www.google.com/search*",
+        "https://jobright.ai/*",
+        "http://127.0.0.1:4174/fixtures/*",
+        "http://127.0.0.1:8787/fixtures/*"
+      ],
+      "js": ["content.js"],
+      "type": "module",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://jobs.ashbyhq.com/*"
+      ],
+      "js": ["fill.js"],
+      "type": "module",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://ajeenckya5.github.io/job-search/*",
+        "http://127.0.0.1:8787/*",
+        "http://127.0.0.1:4174/*"
+      ],
+      "exclude_matches": [
+        "http://127.0.0.1:8787/fixtures/*",
+        "http://127.0.0.1:4174/fixtures/*"
+      ],
+      "js": ["app.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "job-autopilot@localhost",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  }
+}

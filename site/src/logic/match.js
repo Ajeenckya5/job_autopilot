@@ -95,7 +95,8 @@ function consider(map, id, weight, kind, hidden, nudges) {
   if (!id || hidden.has(id)) return;
   const role = BY_ID.get(id);
   if (!role) return;
-  const nudged = clampWeight(weight + (nudges[id] || 0));
+  let nudged = clampWeight(weight + (nudges[id] || 0));
+  if (kind === "adjacent") nudged = Math.min(nudged, 0.75);
   const prev = map.get(id);
   if (!prev || nudged > prev.weight) {
     map.set(id, { id, weight: nudged, kind, role });
@@ -135,7 +136,11 @@ export function familyMap(profile) {
     consider(map, id, 1, "target", hidden, nudges);
     (BY_ID.get(id).adjacent || []).forEach((adj) => consider(map, adj.id, adj.weight, "adjacent", hidden, nudges));
   });
-  idsInText(profile.resume_text || "").forEach((id) => {
+  const past = []
+    .concat(Array.isArray(profile.titles) ? profile.titles : [])
+    .concat(profile.resume_text || "")
+    .join("\n");
+  idsInText(past).forEach((id) => {
     if (map.get(id)?.kind === "target") return;
     consider(map, id, 0.9, "resume", hidden, nudges);
     (BY_ID.get(id).adjacent || []).forEach((adj) => consider(map, adj.id, adj.weight * 0.9, "adjacent", hidden, nudges));
@@ -194,22 +199,31 @@ export function familyChips(profile) {
   return chips.sort((a, b) => a.label.localeCompare(b.label));
 }
 
+function applyFeedback(mixed, profile) {
+  const feedback = profile.feedback;
+  let next = mixed;
+  if (feedback?.posCount && feedback.posMean) {
+    next = next.map((value, index) => value + 0.1 * (feedback.posMean[index] || 0));
+  }
+  if (feedback?.negCount && feedback.negMean) {
+    next = next.map((value, index) => value - 0.1 * (feedback.negMean[index] || 0));
+  }
+  return normalize(next);
+}
+
 function profileVector(profile, family) {
+  if (profile.rank_without_embeddings) return null;
+  if (Array.isArray(profile.vector) && profile.vector.length === 384) {
+    return applyFeedback(profile.vector.map((value) => Number(value) || 0), profile);
+  }
   const resume = embed(profile.resume_text || (profile.roles || []).join(" "));
   const targets = [];
   family.forEach((entry) => {
     if (entry.kind === "target") targets.push(roleEmbedding(entry.role));
   });
   const mean = meanVectors(targets) || resume;
-  let mixed = normalize(resume.map((value, index) => 0.5 * value + 0.5 * mean[index]));
-  const feedback = profile.feedback;
-  if (feedback?.posCount && feedback.posMean) {
-    mixed = mixed.map((value, index) => value + 0.1 * feedback.posMean[index]);
-  }
-  if (feedback?.negCount && feedback.negMean) {
-    mixed = mixed.map((value, index) => value - 0.1 * feedback.negMean[index]);
-  }
-  return normalize(mixed);
+  const mixed = normalize(resume.map((value, index) => 0.5 * value + 0.5 * mean[index]));
+  return applyFeedback(mixed, profile);
 }
 
 export function prepareProfile(profile, now = Date.now()) {
@@ -221,7 +235,9 @@ export function prepareProfile(profile, now = Date.now()) {
     family,
     phrases: phraseRows(family, hiddenPhrases),
     skills,
-    years: yearsFromResume(source.resume_text || "", now),
+    years: source.years == null || source.years === ""
+      ? yearsFromResume(source.resume_text || "", now)
+      : Number(source.years) || 0,
     vector: profileVector(source, family),
     days: clampLookback(source.lookback_days),
     now,
@@ -271,6 +287,10 @@ function skillFit(job, prepared) {
   };
 }
 
+function titleHasWords(title, phrase) {
+  return phrase.split(/\s+/).filter(Boolean).every((word) => hasPhrase(title, word));
+}
+
 function roleFit(job, prepared) {
   const title = String(job.title || "");
   let best = null;
@@ -279,6 +299,14 @@ function roleFit(job, prepared) {
     if (best && row.phrase.length < best.phrase.length) break;
     if (!row.re.test(title)) continue;
     if (!best || row.phrase.length > best.phrase.length || row.weight > best.weight) best = row;
+  }
+  if (!best || best.kind === "adjacent") {
+    prepared.phrases.forEach((row) => {
+      if (row.kind !== "target" && row.kind !== "synonym") return;
+      if (row.phrase.split(/\s+/).length < 2) return;
+      if (!titleHasWords(title, row.phrase)) return;
+      if (!best || row.weight > best.weight) best = row;
+    });
   }
   if (best) return best;
   if (job.role_id && prepared.family.has(job.role_id)) {
@@ -343,7 +371,15 @@ export function scoreAll(jobs, profile, now = Date.now()) {
     }
     return { job, role, skills: skillFit(job, prepared) };
   });
-  const similarity = rows.map((row) => Math.max(0, Math.min(1, cosine(prepared.vector, vectorOf(row.job)))));
+  const external = Array.isArray(profile.vector) && profile.vector.length === 384;
+  const similarity = rows.map((row) => {
+    if (!prepared.vector) return 0.5;
+    const jobVector = external
+      ? (Array.isArray(row.job.embedding) && row.job.embedding.length === 384 ? row.job.embedding : null)
+      : vectorOf(row.job);
+    if (!jobVector) return 0.5;
+    return Math.max(0, Math.min(1, cosine(prepared.vector, jobVector)));
+  });
   const top = new Set(similarity.map((value, index) => [value, index]).sort((a, b) => b[0] - a[0]).slice(0, 500).map((row) => row[1]));
   const ranked = rows.map((row, index) => {
     const candidate = row.role.weight > 0 || row.skills.requiredMatched >= 3 || top.has(index);

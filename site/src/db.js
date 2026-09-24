@@ -26,7 +26,12 @@ export async function writeSavedJobs(db, rows) {
   await tx.store.clear();
   (rows || []).forEach((row, index) => {
     if (!row || typeof row !== "object") return;
-    tx.store.put({ ...row, id: row.id || `job-${index}` });
+    if (!row.status || row.status === "new") return;
+    const copy = { ...row, id: row.id || `job-${index}` };
+    delete copy.embedding;
+    delete copy.vector;
+    if (copy.description_text) copy.description_text = String(copy.description_text).slice(0, 400);
+    tx.store.put(copy);
   });
   await tx.done;
 }

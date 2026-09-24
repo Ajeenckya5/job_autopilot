@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
 import { rankAll } from "../src/logic/jobs.js";
-import { presentScore, TRUST_DEFAULT } from "../src/logic/llm/payload.js";
+import { FULL_MATCH_DEFAULT, presentScore } from "../src/logic/llm/payload.js";
 import { scoreJobs } from "../src/logic/llm/score.js";
 
 const data = JSON.parse(readFileSync(new URL("./fixtures/matching/personas.json", import.meta.url)));
@@ -32,37 +32,46 @@ function mean(rows) {
   };
 }
 
-function judge(profile, job) {
+function quote(resume, skill) {
+  const index = resume.toLowerCase().indexOf(String(skill || "").toLowerCase());
+  if (index < 0) return "";
+  return resume.slice(index, index + String(skill).length);
+}
+
+function judge(resume, job) {
+  const description = String(job.description || "");
+  const musts = [...description.matchAll(/Must have ([^.]+)\./g)].map((match) => match[1].trim());
+  const nices = [...description.matchAll(/Nice to have ([^.]+)\./g)].map((match) => match[1].trim());
+  const requirement = (text, type) => {
+    const evidence = quote(resume, text);
+    return {
+      text,
+      type,
+      status: evidence ? (type === "must" ? "met" : "partial") : "missing",
+      evidence_quote: evidence,
+      note: evidence ? "Named on the resume" : "",
+    };
+  };
   const title = String(job.title || "").toLowerCase();
-  const targets = (profile.target_roles || []).map((role) => String(role).toLowerCase());
-  const role = targets.some((target) => target && title.includes(target)) ? 100 : 25;
-  const skills = profile.skills || [];
-  const requirements = String(job.requirements || "").toLowerCase();
-  const matched = skills.filter((skill) => requirements.includes(String(skill).toLowerCase()));
-  const skill = skills.length ? Math.round(100 * matched.length / Math.min(skills.length, 4)) : 40;
-  const score = Math.round(0.55 * role + 0.45 * Math.min(100, skill));
-  const tier = score >= 85 ? "strong" : score >= 70 ? "good" : score >= 55 ? "stretch" : "hide";
+  const role = /machine learning|data scientist|registered nurse|software engineer/.test(title) ? 0.9 : 0.2;
   return {
     job_id: job.job_id,
-    score,
-    tier,
+    requirements: [...musts.map((text) => requirement(text, "must")), ...nices.map((text) => requirement(text, "nice"))],
+    years_required: 6,
+    seniority_fit: "match",
     role_fit: role,
-    skills_fit: Math.min(100, skill),
-    experience_fit: 80,
-    matched_required: matched.slice(0, 3),
-    missing_required: [],
     dealbreakers: [],
-    reason: "Compared the title and the required skills.",
-    confidence: 0.9,
+    llm_overall: 70,
+    summary: "Compared the posting with the resume.",
   };
 }
 
-function judgeFetch(url, init) {
+function judgeFetch(_url, init) {
   const body = JSON.parse(init.body);
   const user = body.messages[1].content;
-  const profile = JSON.parse(user.match(/Candidate profile:\n(\{[\s\S]*?\})\n/)[1]);
+  const resume = (user.match(/<untrusted_resume>\n([\s\S]*?)\n<\/untrusted_resume>/) || [])[1] || "";
   const jobs = [...user.matchAll(/<untrusted_job[\s\S]*?\n(\{[\s\S]*?\})\n<\/untrusted_job>/g)].map((match) => JSON.parse(match[1]));
-  const payload = { jobs: jobs.map((job) => judge(profile, job)) };
+  const payload = { jobs: jobs.map((job) => judge(resume, job)) };
   return Promise.resolve(new Response(JSON.stringify({
     choices: [{ message: { content: JSON.stringify(payload) } }],
   }), { status: 200 }));
@@ -91,19 +100,21 @@ async function aiById(persona, ranked) {
     provider: "openai",
     model: "fixture",
     apiKey: "fixture",
-    topN: 50,
-    dailyCap: 100,
-    batchSize: 8,
-  }, { storage: storage(), fetchImpl: judgeFetch, now });
-  return result.results;
+    topN: 25,
+    dailyCap: 50,
+    pace: false,
+  }, { storage: storage(), fetchImpl: judgeFetch, now, pace: false });
+  return result;
 }
 
 describe("fixture blend", () => {
   it("compares local, AI only, and blended ranking", async () => {
     const localRows = [];
     const aiRows = [];
-    const blendRows = [];
     const tops = {};
+    const rates = [];
+    const requests = [];
+    const tokens = [];
     for (const persona of data.personas) {
       const profile = {
         resume_text: persona.resume_text,
@@ -113,29 +124,38 @@ describe("fixture blend", () => {
         lookback_days: 30,
       };
       const local = rankAll(persona.jobs, profile, now);
-      const ai = await aiById(persona, local);
-      const withAi = local.map((job) => ({ ...job, ai: ai.get(job.id) }));
-      const blended = withAi.map((job) => presentScore(job, 0.5)).sort((a, b) => b.display_score - a.display_score);
-      const only = withAi.map((job) => presentScore(job, 1)).sort((a, b) => b.display_score - a.display_score);
+      const first = await aiById(persona, local);
+      const ranked = local.map((job) => presentScore({ ...job, ai: first.results.get(job.id) }))
+        .sort((a, b) => b.display_score - a.display_score || b.match_score - a.match_score);
       localRows.push(metrics(persona, local));
-      aiRows.push(metrics(persona, only));
-      blendRows.push(metrics(persona, blended));
+      aiRows.push(metrics(persona, ranked));
+      rates.push(first.evidenceRate);
+      requests.push(first.requests);
+      tokens.push(first.tokens);
       if (persona.id === "ml-automotive" || persona.id === "registered-nurse") {
         const twice = await aiById(persona, local);
-        const drift = Math.max(...local.map((job) => Math.abs((ai.get(job.id)?.score || 0) - (twice.get(job.id)?.score || 0))));
+        const drift = Math.max(...local.slice(0, 25).map((job) => Math.abs((first.results.get(job.id)?.code_score || 0) - (twice.results.get(job.id)?.code_score || 0))));
         expect(drift).toBeLessThanOrEqual(5);
         tops[persona.id] = {
           local: local.slice(0, 10).map((job) => `${job.title} ${job.match_score}`),
-          blend: blended.slice(0, 10).map((job) => `${job.title} ${job.display_score}`),
+          full: ranked.slice(0, 10).map((job) => `${job.title} ${job.display_score}`),
         };
       }
     }
-    const summary = { local: mean(localRows), ai: mean(aiRows), blend: mean(blendRows), trust: TRUST_DEFAULT, tops };
+    const summary = {
+      local: mean(localRows),
+      full: mean(aiRows),
+      evidence: rates.reduce((sum, rate) => sum + rate, 0) / rates.length,
+      requests: requests.reduce((sum, count) => sum + count, 0) / requests.length,
+      tokens: tokens.reduce((sum, count) => sum + count, 0) / tokens.length,
+      default: FULL_MATCH_DEFAULT,
+      tops,
+    };
     console.log(`LLM_EVAL ${JSON.stringify(summary)}`);
-    const wins = summary.blend.precision >= summary.local.precision
-      && summary.blend.ndcg >= summary.local.ndcg
-      && summary.blend.recall >= summary.local.recall
-      && (summary.blend.precision > summary.local.precision || summary.blend.ndcg > summary.local.ndcg || summary.blend.recall > summary.local.recall);
-    expect(TRUST_DEFAULT).toBe(wins ? 0.5 : 0);
+    expect(summary.evidence).toBeGreaterThanOrEqual(0.98);
+    expect(data.personas).toHaveLength(60);
+    expect(data.personas.every((persona) => persona.jobs.length === 50)).toBe(true);
+    const wins = summary.full.precision > summary.local.precision && summary.full.ndcg > summary.local.ndcg;
+    expect(FULL_MATCH_DEFAULT).toBe(wins);
   }, 30000);
 });

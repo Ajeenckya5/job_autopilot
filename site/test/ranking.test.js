@@ -46,6 +46,26 @@ describe("labelled pairs", () => {
     expect(shownRelevant / shown).toBeGreaterThanOrEqual(0.9);
   });
 
+  it("ranks an exact target above an adjacent role when the skills match", () => {
+    const description = "Python PyTorch machine learning experiments and SQL.";
+    const ranked = rankAll([
+      ["arch", "Data Architect"],
+      ["ml", "Staff Software Engineer, Machine Learning"],
+      ["applied", "Applied Scientist"],
+      ["de", "Data Engineer"],
+    ].map(([id, title]) => job(id, { title, description })), {
+      resume_text: "Machine learning engineer and data scientist. Python and PyTorch.",
+      roles: ["Machine Learning Engineer", "Data Scientist"],
+      locations: ["United States"],
+      lookback_days: 30,
+    }, now);
+    const score = (id) => ranked.find((item) => item.id === id).match_score;
+    expect(score("ml")).toBeGreaterThan(score("applied"));
+    expect(score("ml")).toBeGreaterThan(score("de"));
+    expect(score("ml")).toBeGreaterThan(score("arch"));
+    expect(ranked.find((item) => item.id === "applied").relation).toMatch(/Related/);
+  });
+
   it("does not put DevOps, Sales, or Systems in the top 10 for an ML resume", () => {
     const titles = [
       "Senior DevOps Engineer",

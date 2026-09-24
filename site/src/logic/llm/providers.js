@@ -63,6 +63,19 @@ export function isMacHost(hostname = "") {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
 }
 
+const REQUIREMENT = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    text: { type: "string" },
+    type: { type: "string", enum: ["must", "nice"] },
+    status: { type: "string", enum: ["met", "partial", "missing"] },
+    evidence_quote: { type: "string" },
+    note: { type: "string" },
+  },
+  required: ["text", "type", "status", "evidence_quote", "note"],
+};
+
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -74,26 +87,41 @@ const SCHEMA = {
         additionalProperties: false,
         properties: {
           job_id: { type: "string" },
-          score: { type: "number" },
-          tier: { type: "string", enum: ["strong", "good", "stretch", "hide"] },
+          requirements: { type: "array", items: REQUIREMENT },
+          years_required: { type: "number" },
+          seniority_fit: { type: "string", enum: ["under", "match", "over"] },
           role_fit: { type: "number" },
-          skills_fit: { type: "number" },
-          experience_fit: { type: "number" },
-          matched_required: { type: "array", items: { type: "string" } },
-          missing_required: { type: "array", items: { type: "string" } },
           dealbreakers: { type: "array", items: { type: "string" } },
-          reason: { type: "string" },
-          confidence: { type: "number" },
+          llm_overall: { type: "number" },
+          summary: { type: "string" },
         },
         required: [
-          "job_id", "score", "tier", "role_fit", "skills_fit", "experience_fit",
-          "matched_required", "missing_required", "dealbreakers", "reason", "confidence",
+          "job_id", "requirements", "years_required", "seniority_fit", "role_fit",
+          "dealbreakers", "llm_overall", "summary",
         ],
       },
     },
   },
   required: ["jobs"],
 };
+
+export function freeTierFor(providerId, model = "") {
+  const name = String(model || "").toLowerCase();
+  if (providerId === "gemini") {
+    if (name.includes("lite")) return { rpm: 15, rpd: 1000 };
+    if (name.includes("pro")) return { rpm: 5, rpd: 100 };
+    return { rpm: 10, rpd: 250 };
+  }
+  if (providerId === "groq") {
+    if (name.includes("8b")) return { rpm: 30, rpd: 14400 };
+    if (name.includes("70b") || name.includes("versatile")) return { rpm: 2, rpd: 1000 };
+    return { rpm: 30, rpd: 1000 };
+  }
+  if (providerId === "openai") return { rpm: 3, rpd: 50 };
+  if (providerId === "anthropic") return { rpm: 5, rpd: 50 };
+  if (providerId === "openrouter") return { rpm: 16, rpd: 50 };
+  return { rpm: 30, rpd: 5000 };
+}
 
 function chatBody(model, prompt) {
   return {
@@ -140,11 +168,18 @@ export function buildProviderRequest(providerId, { model, prompt, apiKey = "" })
         model,
         max_tokens: 4096,
         temperature: 0,
-        system: prompt.system,
-        messages: [{ role: "user", content: prompt.user }],
+        system: [
+          { type: "text", text: prompt.system },
+          {
+            type: "text",
+            text: `<untrusted_resume>\n${prompt.resume || ""}\n</untrusted_resume>`,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+        messages: [{ role: "user", content: prompt.user.replace(/<untrusted_resume>[\s\S]*?<\/untrusted_resume>\n*/ , "") }],
         tools: [{
           name: "score_jobs",
-          description: "Return closeness scores for the jobs.",
+          description: "Return requirement evidence for the jobs.",
           input_schema: SCHEMA,
         }],
         tool_choice: { type: "tool", name: "score_jobs" },

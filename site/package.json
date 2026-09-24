@@ -1,5 +1,5 @@
 {
-  "name": "job-autopilot",
+  "name": "site",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src test",
-    "e2e": "playwright test",
+    "e2e": "playwright test; code=$?; rm -rf test-results playwright-report; exit $code",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -4,13 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Job Autopilot</title>
-  <meta name="description" content="Private job search. Your resume stays on this device, and matches come from public company job boards.">
+  <meta name="description" content="Private job search. The resume file is discarded after it is read. Matches come from public company job boards.">
+  <meta name="jobs-api" content="https://jobs-api.ajeenckya.workers.dev">
   <link rel="canonical" href="https://ajeenckya5.github.io/job-search/">
   <meta property="og:title" content="Job Autopilot">
-  <meta property="og:description" content="Private job search. Your resume stays on this device.">
+  <meta property="og:description" content="Private job search. The resume file is not stored.">
   <meta property="og:image" content="https://ajeenckya5.github.io/job-search/og.png">
   <meta property="og:url" content="https://ajeenckya5.github.io/job-search/">
-  <meta name="theme-color" content="#1b1914">
+  <meta name="theme-color" content="#101210">
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./src/styles.css">
@@ -25,7 +26,7 @@
         <button type="button" data-nav="tracker">Tracker</button>
         <button type="button" data-nav="settings">Settings</button>
       </nav>
-      <p class="rail-note">Resume stays in this browser.</p>
+      <p class="rail-note">Profile, tracker, and settings stay on this device.</p>
     </header>
     <main id="main">
       <p id="offline" class="banner" hidden>You are offline. Showing roles saved on this device.</p>
@@ -34,7 +35,7 @@
 
       <section data-view="welcome">
         <h1>Find roles that fit</h1>
-        <p class="lede">Your resume stays in this browser. Search reads a saved feed from public company job boards. Nothing is uploaded.</p>
+        <p class="lede">The resume file is read in this browser and then discarded. Search asks for at most 300 roles that match your place, look-back, and role family.</p>
         <form id="setupForm" novalidate>
           <div id="stepResume">
             <label for="resumeFile">Resume (PDF, DOCX, or TXT)</label>
@@ -162,12 +163,11 @@
         </div>
         <p id="aiEstimate" class="hint"></p>
         <p id="aiProgress" class="hint" aria-live="polite"></p>
-        <label class="check" for="aiConsent"><input id="aiConsent" type="checkbox"> I agree to send the preview below</label>
+        <p id="aiConsentLead" class="hint"></p>
+        <label class="check" for="aiConsent"><input id="aiConsent" type="checkbox"> I agree to send the resume and the job descriptions</label>
         <p id="aiConsentText" class="hint"></p>
-        <label class="check" for="aiFull"><input id="aiFull" type="checkbox"> Send full resume text</label>
-        <label for="aiWeight">How much to trust the AI score</label>
-        <input id="aiWeight" type="range" min="0" max="100" step="50" value="0">
-        <p id="aiWeightLabel" class="hint">Local only</p>
+        <label class="check" for="aiExact"><input id="aiExact" type="checkbox"> Send job descriptions exactly as posted</label>
+        <p class="hint">The card score is computed from the checklist. The model’s own number is only a check.</p>
         <h3>What gets sent</h3>
         <pre id="aiPreview" class="hint"></pre>
         <h2>Backup</h2>
@@ -176,11 +176,41 @@
           <label class="btn" for="importFile">Import JSON</label>
           <input id="importFile" type="file" accept="application/json,.json" hidden>
         </div>
+        <h2>Storage</h2>
+        <p id="storageUsed" class="hint">Storage used: 0.0 MB</p>
+        <button id="btnClearData" class="btn danger" type="button">Clear app data</button>
+        <h2>Plan</h2>
+        <p id="planLine" class="hint"></p>
+        <h2>Help</h2>
+        <details>
+          <summary>How search works</summary>
+          <p class="hint">Search asks for up to 300 roles that match your place, look-back, and role family. The resume file is not stored.</p>
+        </details>
+        <details>
+          <summary>How scores work</summary>
+          <p class="hint">The number on a card is computed from the checklist. A model number is only a check.</p>
+        </details>
+        <details>
+          <summary>Keyboard</summary>
+          <p id="shortcutHelp" class="hint"></p>
+        </details>
+        <h2>Feedback</h2>
+        <p class="hint"><a href="https://github.com/Ajeenckya5/job-search/issues/new">Send feedback</a></p>
         <h2>Erase</h2>
         <p class="hint">This removes the resume, roles, and tracker stored in this browser.</p>
         <button id="btnErase" class="btn danger" type="button">Erase everything</button>
       </section>
     </main>
+    <div id="whatsNew" class="dialog" hidden role="dialog" aria-labelledby="whatsNewTitle">
+      <p id="whatsNewTitle">What’s new</p>
+      <p>Folio dark is the look. Apply kit and interview prep use only lines already on the resume.</p>
+      <button id="whatsNewClose" class="btn primary" type="button">Close</button>
+    </div>
+    <div id="palette" class="dialog" hidden role="dialog" aria-labelledby="paletteLabel">
+      <label id="paletteLabel" for="paletteInput">Command</label>
+      <input id="paletteInput" type="text" autocomplete="off">
+      <ul id="paletteList" class="jobs"></ul>
+    </div>
     <div id="applyAsk" class="dialog" hidden role="dialog" aria-labelledby="applyAskTitle">
       <p id="applyAskTitle">Did you apply?</p>
       <div class="row">

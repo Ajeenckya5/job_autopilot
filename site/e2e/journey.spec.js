@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { stubSearch } from "./stub-search.js";
 
 const views = [
   { width: 390, height: 844 },
@@ -24,6 +25,12 @@ for (const size of views) {
         if (data) bodies.push(data);
       });
 
+      await stubSearch(page);
+      await page.route("**/api/llm/migrate", (route) => route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ migrated: [] }),
+      }));
       await page.goto("./");
       await page.locator("#resumeFile").setInputFiles({
         name: "resume.txt",
@@ -58,6 +65,10 @@ for (const size of views) {
 
 test("opens from cache when the network is off", async ({ page, context }) => {
   await page.goto("./");
+  await page.evaluate(async () => {
+    const ready = await navigator.serviceWorker.ready;
+    await ready.update().catch(() => {});
+  });
   await context.setOffline(true);
   await page.reload();
   await expect(page.locator("h1").first()).toBeVisible();

@@ -1,19 +1,22 @@
-import { migrateLegacyJobs, openStore, putShard, readFeed, readShards, upsertFeed, writeSavedJobs } from "./db.js";
+import { migrateLegacyJobs, openStore, readFeed, upsertFeed, writeSavedJobs } from "./db.js";
 import { jobsToXlsx } from "./logic/excel.js";
 import { postEvent } from "./logic/events.js";
-import { dropStale, shardsToFetch } from "./logic/feed.js";
 import { arrangeJobs, cleanCompany, collapsePostings, rankAll, searchPool, selectJobs } from "./logic/jobs.js";
 import { apiBase, applyDelta, newSinceLabel, pullConfig, pullDelta, startDeltaSync } from "./logic/sync.js";
 import { hiringTrend, trendIndex } from "./logic/trend.js";
 import { familyChips, noteFeedback, resetFeedback } from "./logic/match.js";
-import { appendAiDetails } from "./logic/llm/card.js";
+import { absorbResume, profileFromResume } from "./logic/profile.js";
+import { fetchCandidates, fetchJobText, fetchProfileVector } from "./logic/search.js";
+import { appendAiDetails, appendApplyKit, appendInterviewPrep } from "./logic/llm/card.js";
 import { macSaveKey, migrateMacKeys, openSecret, sealSecret } from "./logic/llm/keys.js";
-import { buildPrompt, estimateTokens, presentScore, TRUST_DEFAULT } from "./logic/llm/payload.js";
+import { buildPrompt, DAILY_CAP_DEFAULT, estimateTokens, presentScore, TOP_N_DEFAULT } from "./logic/llm/payload.js";
 import { isMacHost, providersForMode } from "./logic/llm/providers.js";
 import { listModels, scoreJobs } from "./logic/llm/score.js";
+import { clearAppData, enforceStorageBudget, formatMegabytes, measureStorage } from "./logic/storage.js";
 import { guessName, readResumeFile, skillsFromText, suggestTitles } from "./logic/resume.js";
 import { loadSentry } from "./sentry.js";
 import { followUpDue, icsFor, kpis, markJob, STATUSES } from "./logic/tracker.js";
+import { PLAN, SHORTCUTS, WHATS_NEW, followUpDraft } from "./logic/premium.js";
 import { parseRunsPerDay, plural, safeHref } from "./logic/text.js";
 import { mergeSources } from "./lib/sources.js";
 
@@ -31,26 +34,36 @@ let uiWorker = null;
 let uiGeneration = 0;
 let workerReady = false;
 let llmConfig = {};
+let searchBusy = false;
 
 const $ = (id) => document.getElementById(id);
 
 function store() {
   try {
-    return JSON.parse(localStorage.getItem(KEY) || "null");
+    const data = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (!data || !data.resume_text) return data;
+    const compact = absorbResume(data);
+    localStorage.setItem(KEY, JSON.stringify(compact));
+    mirror();
+    return compact;
   } catch (_) {
     return null;
   }
 }
 function saveStore(data) {
-  localStorage.setItem(KEY, JSON.stringify(data));
+  localStorage.setItem(KEY, JSON.stringify(absorbResume(data)));
   mirror();
 }
 function loadJobs() {
   return jobCache;
 }
+function trackedJobs(rows) {
+  return (rows || []).filter((job) => job && job.status && job.status !== "new");
+}
+
 function saveJobs(rows) {
   jobCache = Array.isArray(rows) ? rows : [];
-  const snapshot = jobCache;
+  const snapshot = trackedJobs(jobCache);
   persistChain = persistChain
     .then(async () => {
       const db = await openStore();
@@ -69,6 +82,8 @@ function profileFrom(data) {
     name: data.name || "",
     resume_text: data.resume_text || "",
     skills: data.skills || [],
+    titles: data.titles || [],
+    years: data.years,
     roles: data.roles || [],
     locations: data.locations || [],
     lookback_days: Number(data.lookback_days || 14),
@@ -173,10 +188,9 @@ function jobCard(job, trends = new Map(), usedNames = new Set()) {
   const score = document.createElement("p");
   score.className = "score";
   const scoreNum = document.createElement("span");
-  const tierWord = { strong: "Strong", good: "Good", stretch: "Stretch" }[job.tier] || "";
   const shownScore = job.ai ? job.display_score : job.match_score;
   score.style.setProperty("--p", String(shownScore ?? job.match_score ?? 0));
-  scoreNum.textContent = shownScore == null ? "—" : `${tierWord} ${shownScore}`.trim();
+  scoreNum.textContent = shownScore == null ? "—" : String(shownScore);
   score.appendChild(scoreNum);
   let relation = null;
   if (job.relation) {
@@ -198,7 +212,7 @@ function jobCard(job, trends = new Map(), usedNames = new Set()) {
   if (hits) bits.push(`Matches ${hits}`);
   if (miss) bits.push(`Missing ${miss}`);
   if (job.experience_line) bits.push(job.experience_line);
-  why.textContent = bits.join(". ") || "Score is based on the role text and your resume.";
+  why.textContent = bits.join(". ") || "Score is based on the role text and your profile.";
   const actions = document.createElement("div");
   actions.className = "row";
   const save = document.createElement("button");
@@ -252,7 +266,10 @@ function jobCard(job, trends = new Map(), usedNames = new Set()) {
   if (relation) li.appendChild(relation);
   if (badge) li.appendChild(badge);
   li.append(why, actions);
-  appendAiDetails(job, li, (row) => { runAi([row]); });
+  const profile = store() || {};
+  appendAiDetails(job, li, (row) => { runAi([row]); }, profile.resume_text || "");
+  appendApplyKit(job, li, profile.resume_text || "", profile.name || "");
+  appendInterviewPrep(job, li, profile.resume_text || "");
   return li;
 }
 
@@ -384,6 +401,12 @@ async function llmStorage() {
     set: (key, value) => db.put("kv", value, key),
     getCache: (key) => db.get("llm-cache", key),
     setCache: (row) => db.put("llm-cache", row),
+    prune: async (max) => {
+      const rows = await db.getAll("llm-cache");
+      if (!Array.isArray(rows) || rows.length <= max) return;
+      rows.sort((a, b) => (a?.at || 0) - (b?.at || 0));
+      await Promise.all(rows.slice(0, rows.length - max).filter((row) => row?.key).map((row) => db.delete("llm-cache", row.key)));
+    },
   };
 }
 
@@ -393,13 +416,13 @@ async function currentAiSettings() {
   const provider = data.ai_provider || $("aiProvider")?.value || "";
   return {
     consent: !!data.ai_consent,
-    fullText: !!data.ai_full_resume,
+    exactDescription: !!data.ai_exact_description,
     provider,
     model: data.ai_model || (llmConfig.llm_models || {})[provider] || "",
     apiKey: !macMode() && secret?.provider === provider ? (secret.apiKey || "") : "",
     mac: macMode(),
-    dailyCap: Number(llmConfig.llm_daily_cap) || 100,
-    topN: Number(llmConfig.llm_top_n) || 30,
+    dailyCap: Number(llmConfig.llm_daily_cap) || DAILY_CAP_DEFAULT,
+    topN: Number(llmConfig.llm_top_n) || TOP_N_DEFAULT,
     concurrency: Number((llmConfig.llm_concurrency || {})[provider]) || 1,
   };
 }
@@ -419,6 +442,7 @@ async function runAi(jobs) {
   try {
     const result = await scoreJobs(jobs, profileFrom(data), settings, {
       storage: await llmStorage(),
+      fetchDescription: (job) => fetchJobText(job),
       onProgress({ total, done }) {
         const text = `AI scoring ${total} jobs, ${done} done`;
         if (progress) progress.textContent = text;
@@ -435,12 +459,6 @@ async function runAi(jobs) {
     showAiBanner(error.message || "AI scoring stopped. Local scores are unchanged.");
   }
   paint();
-}
-
-function weightLabel(weight) {
-  if (weight >= 1) return "AI only";
-  if (weight > 0) return "Half local, half AI";
-  return "Local only";
 }
 
 function paintAi(data) {
@@ -472,12 +490,13 @@ function paintAi(data) {
   }
   const consent = $("aiConsent");
   if (consent && document.activeElement !== consent) consent.checked = !!data.ai_consent;
-  const full = $("aiFull");
-  if (full && document.activeElement !== full) full.checked = !!data.ai_full_resume;
-  const weight = data.ai_weight == null ? TRUST_DEFAULT : Number(data.ai_weight);
-  const slider = $("aiWeight");
-  if (slider && document.activeElement !== slider) slider.value = String(Math.round(weight * 100));
-  if ($("aiWeightLabel")) $("aiWeightLabel").textContent = weightLabel(weight);
+  const exact = $("aiExact");
+  if (exact && document.activeElement !== exact) exact.checked = !!data.ai_exact_description;
+  const chosen = options.find((item) => item.id === select.value);
+  const lead = $("aiConsentLead");
+  if (lead) {
+    lead.textContent = `Your full resume (contact details removed) and each job description are sent to ${chosen?.label || "the provider"}.`;
+  }
   const terms = $("aiConsentText");
   if (terms && !terms.dataset.ready) {
     terms.textContent = "Free tiers of some providers may use inputs to improve their products. ";
@@ -491,12 +510,13 @@ function paintAi(data) {
     });
     terms.dataset.ready = "yes";
   }
-  const previewJobs = loadJobs().slice(0, 8);
-  const prompt = buildPrompt(profileFrom(data), previewJobs, { fullText: !!data.ai_full_resume });
+  const previewJobs = loadJobs().slice(0, 4);
+  const promptSettings = { exactDescription: !!data.ai_exact_description, topN: TOP_N_DEFAULT };
+  const prompt = buildPrompt(profileFrom(data), previewJobs, promptSettings);
   if ($("aiPreview")) $("aiPreview").textContent = JSON.stringify({ system: prompt.system, user: prompt.user }, null, 2);
-  const top = Math.max(1, Math.min(100, Number(llmConfig.llm_top_n) || 30));
+  const top = Math.max(1, Math.min(50, Number(llmConfig.llm_top_n) || TOP_N_DEFAULT));
   if ($("aiEstimate")) {
-    $("aiEstimate").textContent = `About ${estimateTokens(profileFrom(data), loadJobs().slice(0, top), { fullText: !!data.ai_full_resume })} tokens for up to ${top} jobs.`;
+    $("aiEstimate").textContent = `About ${estimateTokens(profileFrom(data), loadJobs(), { ...promptSettings, topN: top })} tokens for up to ${top} jobs. Daily cap ${Number(llmConfig.llm_daily_cap) || DAILY_CAP_DEFAULT} jobs.`;
   }
 }
 
@@ -540,13 +560,12 @@ function paint() {
     const reason = selected.reasons[0];
     msg.textContent = reason
       ? reason.text
-      : (jobs.length ? "Nothing matches that filter." : "No roles yet. Search reads the saved company feed on this device.");
+      : (jobs.length ? "Nothing matches that filter." : "No roles yet. Search asks for up to 300 matching roles.");
     li.appendChild(msg);
     if (reason) li.appendChild(fixButton(reason));
     ul.appendChild(li);
   } else {
-    const weight = data.ai_weight == null ? TRUST_DEFAULT : Number(data.ai_weight);
-    const presented = visible.map((job) => presentScore(job, weight))
+    const presented = visible.map((job) => presentScore(job))
       .sort((a, b) => (b.display_score || 0) - (a.display_score || 0) || String(b.posted_at).localeCompare(String(a.posted_at)));
     const sections = [
       ["Closest matches", "strong"],
@@ -575,6 +594,15 @@ function paint() {
   $("kpi").textContent = `${stats.applied_week} applied this week · ${stats.interviews} interviews · ${stats.offers} offers · ${stats.response_rate}% response`;
   paintBoard(jobs);
   $("settingsName").textContent = data.name || "Your search";
+  if ($("planLine")) $("planLine").textContent = `Plan: ${PLAN}. Matching, the tracker, export, and delete stay available either way.`;
+  window.postMessage({
+    type: "job-autopilot-profile",
+    profile: {
+      name: data.name || "",
+      location: (data.locations || [])[0] || "",
+      role: (data.roles || [])[0] || "",
+    },
+  }, location.origin);
   $("resumeName").textContent = data.resume_name || "No resume stored";
   $("liveBoards").checked = !!data.live_boards;
   $("mailOptIn").checked = !!data.mail_opt_in;
@@ -585,6 +613,15 @@ function paint() {
   if ($("usajobsEmail") && document.activeElement !== $("usajobsEmail")) $("usajobsEmail").value = data.usajobs_email || "";
   if ($("usajobsKey") && document.activeElement !== $("usajobsKey")) $("usajobsKey").value = data.usajobs_key || "";
   paintAi(data);
+  paintStorage();
+}
+
+function paintStorage() {
+  const line = $("storageUsed");
+  if (!line) return;
+  measureStorage().then((bytes) => {
+    line.textContent = `Storage used: ${formatMegabytes(bytes)}`;
+  }).catch(() => {});
 }
 
 function paintBoard(jobs) {
@@ -657,6 +694,19 @@ function paintBoard(jobs) {
         a.click();
       });
       card.append(sel, notes, cal);
+      if (job.status === "applied") {
+        [7, 14].forEach((days) => {
+          const follow = document.createElement("button");
+          follow.type = "button";
+          follow.className = "btn";
+          follow.textContent = `Follow-up · ${days} days`;
+          const draft = document.createElement("textarea");
+          draft.hidden = true;
+          draft.value = followUpDraft(job, days);
+          follow.addEventListener("click", () => { draft.hidden = false; });
+          card.append(follow, draft);
+        });
+      }
       col.appendChild(card);
     });
     return col;
@@ -665,7 +715,7 @@ function paintBoard(jobs) {
 }
 
 async function rankInWorker(jobs, profile) {
-  if (typeof Worker === "undefined") return rankAll(jobs, profile);
+  if (typeof Worker === "undefined" || (jobs || []).length <= 40) return rankAll(jobs, profile);
   try {
     const ranked = await new Promise((resolve, reject) => {
       const worker = new Worker(new URL("./rank.worker.js", import.meta.url), { type: "module" });
@@ -683,7 +733,10 @@ async function rankInWorker(jobs, profile) {
         worker.terminate();
         reject(new Error("Matching failed."));
       };
-      worker.postMessage({ jobs, profile });
+      const safe = { ...(profile || {}) };
+      delete safe.resume_text;
+      delete safe.resume_file;
+      worker.postMessage({ jobs, profile: safe });
     });
     return ranked;
   } catch (_) {
@@ -695,38 +748,6 @@ function tidyJob(job) {
   return { ...job, company: cleanCompany(job.company) };
 }
 
-async function loadFeeds() {
-  const res = await fetch("./feeds/manifest.json", { cache: "no-cache" });
-  if (!res.ok) throw new Error("The job feed is not on this site yet.");
-  const manifest = await res.json();
-  const names = manifest.shards || [];
-  const db = await openStore();
-  const cached = await readShards(db, names);
-  const hashes = {};
-  Object.entries(cached).forEach(([name, row]) => {
-    if (row && row.sha256) hashes[name] = row.sha256;
-  });
-  const needed = new Set(shardsToFetch(manifest, hashes));
-  const jobs = [];
-  const saving = [];
-  await Promise.all(names.map(async (name) => {
-    if (!needed.has(name)) {
-      (cached[name].jobs || []).forEach((job) => {
-        if (!dropStale(job)) jobs.push(tidyJob(job));
-      });
-      return;
-    }
-    const response = await fetch(`./feeds/${name}`);
-    if (!response.ok) return;
-    const data = await response.json();
-    const rows = (data.jobs || data).filter((job) => !dropStale(job)).map(tidyJob);
-    const hash = (manifest.sha256 || {})[name];
-    if (hash) saving.push(putShard(db, name, { sha256: hash, jobs: rows }).catch(() => {}));
-    rows.forEach((job) => jobs.push(job));
-  }));
-  return { jobs, generated_at: manifest.generated_at || "", saved: Promise.all(saving) };
-}
-
 async function loadUsaJobs(data) {
   const key = String(data.usajobs_key || "").trim();
   const email = String(data.usajobs_email || "").trim();
@@ -735,62 +756,80 @@ async function loadUsaJobs(data) {
   const places = (data.locations || []).map((place) => String(place || "").trim()).filter((place) => place && !/remote/i.test(place)).slice(0, 2);
   const where = places.length ? places : ["United States"];
   const jobs = [];
-  for (const role of roles) {
-    for (const place of where) {
-      const url = new URL("https://data.usajobs.gov/api/search");
-      url.searchParams.set("Keyword", role);
-      url.searchParams.set("LocationName", place);
-      url.searchParams.set("ResultsPerPage", "25");
-      const response = await fetch(url, { headers: { "Authorization-Key": key, "User-Agent": email } });
-      if (!response.ok) continue;
-      const body = await response.json();
-      const items = body?.SearchResult?.SearchResultItems || [];
-      items.forEach((item) => {
-        const row = item.MatchedObjectDescriptor || {};
-        const loc = row.PositionLocationDisplay || "";
-        const summary = row.UserArea?.Details?.JobSummary || "";
-        jobs.push(tidyJob({
-          id: `usajobs-${item.MatchedObjectId || row.PositionURI || jobs.length}`,
-          source: "usajobs",
-          company: row.OrganizationName || "USAJobs",
-          title: row.PositionTitle || "",
-          url: row.PositionURI || "",
-          location_raw: loc,
-          locations: [{ city: loc, region: "", country: "United States", remote: /remote/i.test(loc) ? "remote" : "" }],
-          posted_at: row.PublicationStartDate || "",
-          updated_at: row.PublicationStartDate || "",
-          description_text: String(summary).replace(/\s+/g, " ").trim().slice(0, 1500),
-        }));
-      });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000);
+  try {
+    for (const role of roles) {
+      for (const place of where) {
+        const url = new URL("https://data.usajobs.gov/api/search");
+        url.searchParams.set("Keyword", role);
+        url.searchParams.set("LocationName", place);
+        url.searchParams.set("ResultsPerPage", "25");
+        const response = await fetch(url, {
+          headers: { "Authorization-Key": key, "User-Agent": email },
+          signal: controller.signal,
+        });
+        if (!response.ok) continue;
+        const body = await response.json();
+        const items = body?.SearchResult?.SearchResultItems || [];
+        items.forEach((item) => {
+          const row = item.MatchedObjectDescriptor || {};
+          const loc = row.PositionLocationDisplay || "";
+          const summary = row.UserArea?.Details?.JobSummary || "";
+          jobs.push(tidyJob({
+            id: `usajobs-${item.MatchedObjectId || row.PositionURI || jobs.length}`,
+            source: "usajobs",
+            company: row.OrganizationName || "USAJobs",
+            title: row.PositionTitle || "",
+            url: row.PositionURI || "",
+            location_raw: loc,
+            locations: [{ city: loc, region: "", country: "United States", remote: /remote/i.test(loc) ? "remote" : "" }],
+            posted_at: row.PublicationStartDate || "",
+            updated_at: row.PublicationStartDate || "",
+            description_text: String(summary).replace(/\s+/g, " ").trim().slice(0, 1500),
+          }));
+        });
+      }
     }
+  } finally {
+    clearTimeout(timer);
   }
   return jobs;
 }
 
 async function searchNow() {
+  if (searchBusy) return;
   const data = store();
   if (!data) return;
   const live = $("statusLive");
-  live.textContent = "Searching the saved company feed…";
+  searchBusy = true;
+  live.textContent = "Searching…";
   try {
-    const feed = await loadFeeds();
-    if (feed.generated_at) localStorage.setItem("jobAutopilotFeedAt", feed.generated_at);
     const profile = profileFrom(data);
+    let vector = null;
+    try {
+      vector = await fetchProfileVector(profile);
+    } catch (_) {
+      vector = null;
+    }
+    const rankingProfile = vector
+      ? { ...profile, vector }
+      : { ...profile, rank_without_embeddings: true };
+    const candidates = await fetchCandidates(profile);
     let government = [];
     try {
       government = await loadUsaJobs(data);
     } catch (_) {
       government = [];
     }
-    const pool = searchPool(feed.jobs.concat(government), profile);
-    const ranked = await rankInWorker(pool, { ...profile, lookback_days: 30 });
-    await feed.saved;
+    const pool = searchPool(candidates.concat(government), profile).slice(0, 300);
+    const ranked = await rankInWorker(pool, rankingProfile);
     const collapsed = collapsePostings(ranked).map((job) => {
       const old = loadJobs().find((row) => row.id === job.id);
       return old ? { ...job, status: old.status, notes: old.notes, applied_at: old.applied_at } : { ...job, status: "new" };
     });
     const kept = loadJobs().filter((old) => !collapsed.some((job) => job.id === old.id) && old.status && old.status !== "new");
-    await saveJobs(collapsePostings(collapsed.concat(kept)));
+    saveJobs(collapsePostings(collapsed.concat(kept)));
     const selected = selectJobs(loadJobs(), profile, controlsFromPage());
     live.textContent = `Found ${plural(selected.rows.length, "role")}.`;
     if (data.notify && "Notification" in window && Notification.permission === "granted") {
@@ -800,6 +839,8 @@ async function searchNow() {
     paint();
   } catch (err) {
     live.textContent = err.message || "Search failed. Your saved roles are unchanged.";
+  } finally {
+    searchBusy = false;
   }
 }
 
@@ -819,7 +860,15 @@ function bootWelcome() {
       renderChips(skills.length ? skills : ["Add a skill in settings later"], selected);
       $("personName").value = guessName(got.text);
       $("roleInput").value = suggestTitles(got.text).join(", ");
-      sessionStorage.setItem(DRAFT, JSON.stringify({ name: file.name, text: got.text.slice(0, 20000) }));
+      const parsed = profileFromResume(got.text);
+      sessionStorage.setItem(DRAFT, JSON.stringify({
+        name: file.name,
+        skills: parsed.skills,
+        titles: parsed.titles,
+        years: parsed.years,
+        text: String(got.text || "").slice(0, 20000),
+      }));
+      $("resumeFile").value = "";
       $("stepResume").hidden = true;
       $("stepPrefs").hidden = false;
     } catch (err) {
@@ -836,7 +885,7 @@ function bootWelcome() {
     const draft = JSON.parse(sessionStorage.getItem(DRAFT) || "{}");
     const roles = $("roleInput").value.split(",").map((s) => s.trim()).filter(Boolean);
     const locations = $("whereInput").value.split(",").map((s) => s.trim()).filter(Boolean);
-    if (!draft.text) {
+    if (!draft.name) {
       $("runsError").textContent = "Add a resume first.";
       return;
     }
@@ -847,8 +896,10 @@ function bootWelcome() {
     saveStore({
       name: $("personName").value.trim(),
       resume_name: draft.name,
-      resume_text: draft.text,
-      skills: selected.slice(),
+      resume_text: String(draft.text || "").slice(0, 20000),
+      skills: selected.length ? selected.slice() : (draft.skills || []),
+      titles: draft.titles || [],
+      years: draft.years || 0,
       roles,
       locations,
       lookback_days: Number($("lookback").value || 14),
@@ -862,6 +913,7 @@ function bootWelcome() {
       live_boards: false,
       notify: false,
     });
+    sessionStorage.removeItem(DRAFT);
     location.hash = "#home";
     paint();
     searchNow();
@@ -880,7 +932,11 @@ function importCaptured(incoming) {
     toast("No saved jobs are waiting in the extension.");
     return;
   }
-  saveJobs(mergeSources([{ jobs: loadJobs() }, { jobs: incoming }]));
+  const saved = incoming.map((job) => ({
+    ...job,
+    status: job.status && job.status !== "new" ? job.status : "saved",
+  }));
+  saveJobs(mergeSources([{ jobs: loadJobs() }, { jobs: saved }]));
   paint();
   const names = [...new Set(incoming.map((job) => sourceLabel(job.source)))];
   toast(`Imported ${incoming.length} jobs from ${names.join(" and ")}.`);
@@ -943,6 +999,14 @@ function bootChrome() {
     if (data.jobs) saveJobs(data.jobs);
     toast("Import finished.");
     paint();
+  });
+  $("btnClearData").addEventListener("click", () => {
+    if (!confirm("Clear app data stored in this browser?")) return;
+    clearAppData().then(() => {
+      jobCache = [];
+      location.hash = "#welcome";
+      location.reload();
+    });
   });
   $("btnErase").addEventListener("click", () => {
     if (!confirm("Erase the resume, roles, and tracker stored in this browser?")) return;
@@ -1032,8 +1096,7 @@ function bootChrome() {
   $("aiProvider").addEventListener("change", () => saveAi({ ai_provider: $("aiProvider").value }));
   $("aiModel").addEventListener("change", () => saveAi({ ai_model: $("aiModel").value.trim() }));
   $("aiConsent").addEventListener("change", () => saveAi({ ai_consent: $("aiConsent").checked }));
-  $("aiFull").addEventListener("change", () => saveAi({ ai_full_resume: $("aiFull").checked }));
-  $("aiWeight").addEventListener("input", () => saveAi({ ai_weight: Number($("aiWeight").value) / 100 }));
+  $("aiExact").addEventListener("change", () => saveAi({ ai_exact_description: $("aiExact").checked }));
   $("aiKey").addEventListener("change", async () => {
     const value = $("aiKey").value.trim();
     $("aiKey").value = "";
@@ -1113,6 +1176,99 @@ function bootChrome() {
   $("usajobsEmail").addEventListener("change", saveGovernment);
   $("usajobsKey").addEventListener("change", saveGovernment);
   window.addEventListener("hashchange", paint);
+  const help = $("shortcutHelp");
+  if (help) help.textContent = SHORTCUTS.map(([keys, action]) => `${keys}: ${action}`).join(". ");
+  if ($("whatsNew") && localStorage.getItem("jobAutopilotWhatsNew") !== WHATS_NEW) $("whatsNew").hidden = false;
+  $("whatsNewClose").addEventListener("click", () => {
+    localStorage.setItem("jobAutopilotWhatsNew", WHATS_NEW);
+    $("whatsNew").hidden = true;
+  });
+  const commands = [
+    ["Search", () => { location.hash = "#home"; paint(); $("btnSearch").click(); }],
+    ["Home", () => { location.hash = "#home"; paint(); }],
+    ["Tracker", () => { location.hash = "#tracker"; paint(); }],
+    ["Settings", () => { location.hash = "#settings"; paint(); }],
+    ["Export", () => $("btnExport").click()],
+    ["Score top matches", () => $("aiScore").click()],
+  ];
+  const paletteList = $("paletteList");
+  const drawPalette = () => {
+    const query = $("paletteInput").value.trim().toLowerCase();
+    paletteList.replaceChildren();
+    commands.filter(([label]) => label.toLowerCase().includes(query)).forEach(([label, run]) => {
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.addEventListener("click", () => {
+        $("palette").hidden = true;
+        run();
+      });
+      item.appendChild(button);
+      paletteList.appendChild(item);
+    });
+  };
+  $("paletteInput").addEventListener("input", drawPalette);
+  drawPalette();
+  let chord = "";
+  document.addEventListener("keydown", (event) => {
+    const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName);
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      $("palette").hidden = !$("palette").hidden;
+      if (!$("palette").hidden) {
+        $("paletteInput").value = "";
+        drawPalette();
+        $("paletteInput").focus();
+      }
+      return;
+    }
+    if (event.key === "Escape") {
+      $("palette").hidden = true;
+      return;
+    }
+    if (typing) return;
+    const key = event.key.toLowerCase();
+    if (key === "g") {
+      chord = "g";
+      return;
+    }
+    if (chord === "g" && key === "t") {
+      chord = "";
+      location.hash = "#tracker";
+      paint();
+      return;
+    }
+    chord = "";
+    if (key === "?") {
+      $("whatsNew").hidden = false;
+      return;
+    }
+    if (key === "/") {
+      event.preventDefault();
+      location.hash = "#home";
+      paint();
+      $("jobSearch").focus();
+      return;
+    }
+    const cards = [...document.querySelectorAll("#jobList li.job")];
+    if (!cards.length) return;
+    let index = cards.findIndex((card) => card.classList.contains("picked"));
+    if (index < 0) index = 0;
+    if (key === "j" || key === "k") {
+      index = key === "j" ? Math.min(cards.length - 1, index + 1) : Math.max(0, index - 1);
+      cards.forEach((card) => card.classList.remove("picked"));
+      cards[index].classList.add("picked");
+      cards[index].scrollIntoView({ block: "nearest" });
+      return;
+    }
+    if (!cards[index].classList.contains("picked")) cards[index].classList.add("picked");
+    const press = (label) => [...cards[index].querySelectorAll("button")].find((button) => button.textContent === label)?.click();
+    if (key === "s") press("Save");
+    if (key === "a") press("Mark applied") || press("Applied");
+    if (key === "h") press("Hide");
+    if (key === "n") press("Not relevant");
+  });
 }
 
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
@@ -1122,7 +1278,11 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 bootWelcome();
 bootChrome();
 openStore().then(async (db) => {
-  jobCache = await migrateLegacyJobs(db);
+  await enforceStorageBudget();
+  const loaded = await migrateLegacyJobs(db);
+  const tracked = trackedJobs(loaded);
+  if (tracked.length !== loaded.length) await writeSavedJobs(db, tracked);
+  jobCache = tracked;
   if (macMode()) migrateMacKeys().catch(() => {});
   const base = apiBase();
   if (base) {
@@ -1130,7 +1290,7 @@ openStore().then(async (db) => {
   }
   if (!store()) {
     const setup = await db.get("kv", "setup");
-    if (setup) localStorage.setItem(KEY, JSON.stringify(setup));
+    if (setup) saveStore(setup);
   }
 }).catch(() => {}).finally(() => {
   paint();

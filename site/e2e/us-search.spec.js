@@ -1,4 +1,7 @@
 import { expect, test } from "@playwright/test";
+import { stubSearch } from "./stub-search.js";
+
+test.use({ serviceWorkers: "block" });
 
 const setup = {
   name: "Avery",
@@ -20,13 +23,16 @@ async function search(page, width, height) {
   }, setup);
   await page.setViewportSize({ width, height });
   const shards = [];
+  const posts = [];
   page.on("request", (request) => {
     const url = request.url();
-    if (url.includes("/feeds/") && url.endsWith(".json") && !url.endsWith("manifest.json")) shards.push(url);
+    if (url.includes("/feeds/") && url.endsWith(".json")) shards.push(url);
+    if (request.method() === "POST") posts.push(request.postData() || "");
   });
+  await stubSearch(page);
   await page.goto("./");
   const start = Date.now();
-  await page.getByRole("button", { name: "Search" }).click();
+  await page.locator("#btnSearch").click();
   await expect(page.locator("#statusLive")).toContainText(/Found [1-9]/, { timeout: 20000 });
   const first = Date.now() - start;
   const status = await page.locator("#statusLive").innerText();
@@ -34,11 +40,15 @@ async function search(page, width, height) {
   expect(errors.join("\n")).not.toMatch(/quota/i);
   expect(await page.locator("#jobList li.job").count()).toBeGreaterThan(0);
   expect(await page.evaluate(() => localStorage.getItem("jobAutopilotJobs"))).toBeNull();
-  expect(shards.length).toBeGreaterThan(0);
+  const stored = JSON.parse(await page.evaluate(() => localStorage.getItem("jobAutopilotSetup") || "{}"));
+  expect(stored.resume_file).toBeUndefined();
+  expect(String(stored.resume_text || "").length).toBeLessThanOrEqual(20 * 1024);
+  expect(posts.join("\n")).not.toMatch(/@|resume_file/);
+  expect(shards.length).toBe(0);
   const downloaded = shards.length;
   shards.length = 0;
   const again = Date.now();
-  await page.getByRole("button", { name: "Search" }).click();
+  await page.locator("#btnSearch").click();
   await expect(page.locator("#statusLive")).toContainText(/Found [1-9]/, { timeout: 20000 });
   return { first, repeat: Date.now() - again, downloaded, repeatDownloads: shards.length, status };
 }

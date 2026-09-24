@@ -1,5 +1,5 @@
-name = "jobs-api"
-main = "src/index.js"
+name = "push"
+main = "src/push.js"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
