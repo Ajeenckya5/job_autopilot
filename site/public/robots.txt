@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://ajeenckya5.github.io/job-search/sitemap.xml

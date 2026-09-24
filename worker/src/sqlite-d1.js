@@ -1,12 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export function openLocalD1() {
   const db = new DatabaseSync(":memory:");
-  const schema = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../schema.sql"), "utf8");
-  db.exec(schema);
+  const dir = join(dirname(fileURLToPath(import.meta.url)), "../migrations");
+  readdirSync(dir).filter((name) => name.endsWith(".sql")).sort().forEach((name) => {
+    db.exec(readFileSync(join(dir, name), "utf8"));
+  });
   return asD1(db);
 }
 

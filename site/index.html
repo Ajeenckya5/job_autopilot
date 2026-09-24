@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Autopilot</title>
+  <meta name="description" content="Private job search. The resume file is discarded after it is read. Matches come from public company job boards.">
+  <meta name="jobs-api" content="https://jobs-api.ajeenckya.workers.dev">
+  <link rel="canonical" href="https://ajeenckya5.github.io/job-search/">
+  <meta property="og:title" content="Job Autopilot">
+  <meta property="og:description" content="Private job search. The resume file is not stored.">
+  <meta property="og:image" content="https://ajeenckya5.github.io/job-search/og.png">
+  <meta property="og:url" content="https://ajeenckya5.github.io/job-search/">
+  <meta name="theme-color" content="#101210">
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./src/styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div class="shell">
+    <header class="rail">
+      <p class="mark">Job Autopilot</p>
+      <nav aria-label="Sections">
+        <button type="button" data-nav="home">Home</button>
+        <button type="button" data-nav="tracker">Tracker</button>
+        <button type="button" data-nav="settings">Settings</button>
+      </nav>
+      <p class="rail-note">Profile, tracker, and settings stay on this device.</p>
+    </header>
+    <main id="main">
+      <p id="offline" class="banner" hidden>You are offline. Showing roles saved on this device.</p>
+      <p id="feedAge" class="banner" hidden>The company feed is more than 12 hours old. Search again after the next update.</p>
+      <p id="toast" class="toast" role="status" hidden></p>
+
+      <section data-view="welcome">
+        <h1>Find roles that fit</h1>
+        <p class="lede">The resume file is read in this browser and then discarded. Search asks for at most 300 roles that match your place, look-back, and role family.</p>
+        <form id="setupForm" novalidate>
+          <div id="stepResume">
+            <label for="resumeFile">Resume (PDF, DOCX, or TXT)</label>
+            <input id="resumeFile" name="resume" type="file" accept=".pdf,.docx,.txt,application/pdf">
+            <p id="resumeError" class="error" role="alert"></p>
+          </div>
+          <div id="stepPrefs" hidden>
+            <p id="skillLabel">We read these skills. Tap one to drop it.</p>
+            <div id="skillChips" class="chips" role="group" aria-labelledby="skillLabel"></div>
+            <label for="personName">Name</label>
+            <input id="personName" name="name" type="text" autocomplete="name">
+            <label for="roleInput">Titles, separated by commas</label>
+            <input id="roleInput" name="roles" type="text" autocomplete="off">
+            <label for="whereInput">Places, separated by commas</label>
+            <input id="whereInput" name="locations" type="text" placeholder="Chicago, Remote, United States">
+            <label for="lookback">Look back (days)</label>
+            <input id="lookback" name="lookback_days" type="number" min="1" max="30" value="14">
+            <label for="maxYears">Skip roles asking for more than this many years</label>
+            <input id="maxYears" name="max_years" type="number" min="0" max="40" placeholder="Optional">
+            <label for="salary">Minimum salary</label>
+            <input id="salary" name="min_salary" type="number" min="0" step="1000" placeholder="Optional">
+            <label class="check" for="remoteOnly"><input id="remoteOnly" type="checkbox"> Remote only</label>
+            <label class="check" for="sponsor"><input id="sponsor" type="checkbox"> Sponsorship needed</label>
+            <label class="check" for="skipLeadership"><input id="skipLeadership" type="checkbox"> Skip leadership titles</label>
+            <label for="runs">Times per day on this computer</label>
+            <input id="runs" name="runs_per_day" type="text" inputmode="numeric" value="0" autocomplete="off">
+            <p class="hint">The public site searches when you press Search. A closed tab does not run a schedule.</p>
+            <p id="runsError" class="error" role="alert"></p>
+            <button id="saveSetup" class="btn primary" type="button">Save and search</button>
+          </div>
+        </form>
+      </section>
+
+      <section data-view="home" hidden>
+        <div class="panel-head">
+          <h1>New matches</h1>
+          <div class="row">
+            <button id="btnSearch" class="btn primary" type="button">Search</button>
+            <button id="btnExcel" class="btn" type="button">Download Excel</button>
+          </div>
+        </div>
+        <p id="statusLive" class="hint" aria-live="polite"></p>
+        <p id="kpi" class="kpi"></p>
+        <div class="filters">
+          <label for="jobSearch">Filter roles</label>
+          <input id="jobSearch" type="search" placeholder="Title or company">
+          <label for="statusFilter">Status</label>
+          <select id="statusFilter">
+            <option value="all">All</option>
+            <option value="new">New</option>
+            <option value="saved">Saved</option>
+            <option value="applied">Applied</option>
+            <option value="assessment">Assessment</option>
+            <option value="interview">Interview</option>
+            <option value="offer">Offer</option>
+            <option value="rejected">Rejected</option>
+            <option value="withdrawn">Withdrawn</option>
+          </select>
+          <label for="minScore">Minimum score</label>
+          <input id="minScore" type="number" min="0" max="100" value="0">
+          <label class="check" for="remoteFilter"><input id="remoteFilter" type="checkbox"> Remote only</label>
+          <label class="check" for="showPossible"><input id="showPossible" type="checkbox"> Show possible matches</label>
+          <label class="check" for="sinceVisit"><input id="sinceVisit" type="checkbox"> New since last visit</label>
+        </div>
+        <p id="jobCount" aria-live="polite"></p>
+        <p id="aiProgressHome" class="hint" aria-live="polite"></p>
+        <p id="alsoSearching" class="hint" hidden>Also searching</p>
+        <div id="familyChips" class="chips"></div>
+        <p id="tunedNote" class="hint" hidden>Tuned by your feedback <button id="resetFeedback" class="btn" type="button">Reset</button></p>
+        <ul id="jobList" class="jobs"></ul>
+      </section>
+
+      <section data-view="tracker" hidden>
+        <h1>Tracker</h1>
+        <p class="hint">Move a role as it changes. Counts on the home screen come from this list.</p>
+        <div id="board" class="board"></div>
+      </section>
+
+      <section data-view="settings" hidden>
+        <h1>Settings</h1>
+        <p id="settingsName"></p>
+        <p id="resumeName"></p>
+        <h2>Sources</h2>
+        <ul>
+          <li>Company boards are always on.</li>
+          <li>LinkedIn, Google Jobs, and Jobright are saved from pages you already have open, or from alert email on this computer.</li>
+          <li>Scheduled LinkedIn search is off.</li>
+          <li>USAJobs is added on the next search when you save a free API key. The key stays in this browser.</li>
+        </ul>
+        <label for="usajobsEmail">USAJobs email</label>
+        <input id="usajobsEmail" name="usajobs_email" type="email" autocomplete="email">
+        <label for="usajobsKey">USAJobs API key</label>
+        <input id="usajobsKey" name="usajobs_key" type="password" autocomplete="off">
+        <p class="hint">Get a free key from the USAJobs developer site. The request uses that key only from this browser.</p>
+        <p class="hint">Install the capture extension from the extension folder with Load unpacked. It does not browse or log in. Saved jobs import when this page opens.</p>
+        <details>
+          <summary>Advanced</summary>
+          <label for="extensionId">Extension id</label>
+          <input id="extensionId" type="text" autocomplete="off" spellcheck="false">
+          <button id="btnImportCapture" class="btn" type="button">Import jobs saved by the extension</button>
+        </details>
+        <label class="check" for="liveBoards"><input id="liveBoards" type="checkbox"> Search live boards on this computer</label>
+        <p class="hint">Off by default. The public site never scrapes LinkedIn, Indeed, Google, or Jobright.</p>
+        <button id="btnLocalScout" class="btn" type="button">Run local board search</button>
+        <label class="check" for="mailOptIn"><input id="mailOptIn" type="checkbox"> Sync application mail on this computer</label>
+        <button id="btnMail" class="btn" type="button">Sync mail</button>
+        <button id="btnNotify" class="btn" type="button">Allow notifications</button>
+        <p class="hint">A notification says how many new postings were found. It does not include your resume.</p>
+        <button id="btnHealth" class="btn" type="button">Check Mac app</button>
+        <p id="healthOut" class="hint" aria-live="polite"></p>
+        <h2>AI scoring</h2>
+        <p class="hint">Off until you consent. Closeness is still scored on this device. Free tiers of some providers may use inputs to improve their products.</p>
+        <p id="aiBanner" class="banner" hidden></p>
+        <label for="aiProvider">Provider</label>
+        <select id="aiProvider"></select>
+        <label for="aiKey">API key</label>
+        <input id="aiKey" type="password" autocomplete="off">
+        <p id="aiKeyNote" class="hint"></p>
+        <label for="aiModel">Model</label>
+        <input id="aiModel" type="text" list="aiModelList" autocomplete="off" spellcheck="false">
+        <datalist id="aiModelList"></datalist>
+        <div class="row">
+          <button id="aiTest" class="btn" type="button">Test</button>
+          <button id="aiScore" class="btn" type="button">Score top matches</button>
+        </div>
+        <p id="aiEstimate" class="hint"></p>
+        <p id="aiProgress" class="hint" aria-live="polite"></p>
+        <p id="aiConsentLead" class="hint"></p>
+        <label class="check" for="aiConsent"><input id="aiConsent" type="checkbox"> I agree to send the resume and the job descriptions</label>
+        <p id="aiConsentText" class="hint"></p>
+        <label class="check" for="aiExact"><input id="aiExact" type="checkbox"> Send job descriptions exactly as posted</label>
+        <p class="hint">The card score is computed from the checklist. The model’s own number is only a check.</p>
+        <h3>What gets sent</h3>
+        <pre id="aiPreview" class="hint"></pre>
+        <h2>Backup</h2>
+        <div class="row">
+          <button id="btnExport" class="btn" type="button">Export JSON</button>
+          <label class="btn" for="importFile">Import JSON</label>
+          <input id="importFile" type="file" accept="application/json,.json" hidden>
+        </div>
+        <h2>Storage</h2>
+        <p id="storageUsed" class="hint">Storage used: 0.0 MB</p>
+        <button id="btnClearData" class="btn danger" type="button">Clear app data</button>
+        <h2>Plan</h2>
+        <p id="planLine" class="hint"></p>
+        <h2>Help</h2>
+        <details>
+          <summary>How search works</summary>
+          <p class="hint">Search asks for up to 300 roles that match your place, look-back, and role family. The resume file is not stored.</p>
+        </details>
+        <details>
+          <summary>How scores work</summary>
+          <p class="hint">The number on a card is computed from the checklist. A model number is only a check.</p>
+        </details>
+        <details>
+          <summary>Keyboard</summary>
+          <p id="shortcutHelp" class="hint"></p>
+        </details>
+        <h2>Feedback</h2>
+        <p class="hint"><a href="https://github.com/Ajeenckya5/job-search/issues/new">Send feedback</a></p>
+        <h2>Erase</h2>
+        <p class="hint">This removes the resume, roles, and tracker stored in this browser.</p>
+        <button id="btnErase" class="btn danger" type="button">Erase everything</button>
+      </section>
+    </main>
+    <div id="whatsNew" class="dialog" hidden role="dialog" aria-labelledby="whatsNewTitle">
+      <p id="whatsNewTitle">What’s new</p>
+      <p>Folio dark is the look. Apply kit and interview prep use only lines already on the resume.</p>
+      <button id="whatsNewClose" class="btn primary" type="button">Close</button>
+    </div>
+    <div id="palette" class="dialog" hidden role="dialog" aria-labelledby="paletteLabel">
+      <label id="paletteLabel" for="paletteInput">Command</label>
+      <input id="paletteInput" type="text" autocomplete="off">
+      <ul id="paletteList" class="jobs"></ul>
+    </div>
+    <div id="applyAsk" class="dialog" hidden role="dialog" aria-labelledby="applyAskTitle">
+      <p id="applyAskTitle">Did you apply?</p>
+      <div class="row">
+        <button id="applyYes" class="btn primary" type="button">Yes</button>
+        <button id="applyNo" class="btn" type="button">Not yet</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

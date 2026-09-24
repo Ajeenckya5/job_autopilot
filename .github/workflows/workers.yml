@@ -20,23 +20,48 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Refuse any Cloudflare account except the personal one
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          account = "ea080f698fdf34fa24a55dbd904ad90a"
+          banned = (
+              "dde444e43d06851a358dac78922dae7c",
+              "df04bc5d-9fad-4cc5-9d1f-c79b9a0b2896",
+              "58de046ae4204473a76cf75b16188250",
+          )
+          files = [Path("worker/wrangler.toml"), Path("worker/wrangler.push.toml")]
+          text = "\n".join(path.read_text() for path in files)
+          if text.count(f'account_id = "{account}"') != len(files):
+              raise SystemExit("every wrangler config must set the personal account_id")
+          for item in banned:
+              if item in text:
+                  raise SystemExit("a wrangler config still names the other account")
+          PY
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - name: Install worker dependencies
         working-directory: worker
         run: npm install
+      - name: Apply D1 migrations
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ea080f698fdf34fa24a55dbd904ad90a
+          workingDirectory: worker
+          command: d1 migrations apply jobs --remote
       - name: Deploy the jobs API
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          accountId: ea080f698fdf34fa24a55dbd904ad90a
           workingDirectory: worker
           command: deploy
       - name: Deploy push
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          accountId: ea080f698fdf34fa24a55dbd904ad90a
           workingDirectory: worker
           command: deploy --config wrangler.push.toml
