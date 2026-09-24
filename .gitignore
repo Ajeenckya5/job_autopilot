@@ -65,3 +65,9 @@ env/
 worker/node_modules/
 
 worker/.wrangler/
+
+# Site dependencies and test output
+site/node_modules/
+site/test-results/
+site/playwright-report/
+_site/

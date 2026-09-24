@@ -3,6 +3,7 @@ main = "src/index.js"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
+account_id = "ea080f698fdf34fa24a55dbd904ad90a"
 
 [triggers]
 crons = ["17 * * * *"]
@@ -10,8 +11,9 @@ crons = ["17 * * * *"]
 [[d1_databases]]
 binding = "DB"
 database_name = "jobs"
-database_id = "df04bc5d-9fad-4cc5-9d1f-c79b9a0b2896"
+database_id = "41c3449c-79fe-44ab-8505-fb4b8ed87724"
+migrations_dir = "migrations"
 
 [[kv_namespaces]]
 binding = "CONFIG"
-id = "58de046ae4204473a76cf75b16188250"
+id = "681a6bf437c14bdfbebcfaecb9910edd"

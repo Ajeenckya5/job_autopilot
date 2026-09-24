@@ -1,0 +1,597 @@
+{
+  "attribution": "Occupation titles, alternate titles, and related-occupation links are adapted from the O*NET 29.0 Database by the U.S. Department of Labor, Employment and Training Administration, licensed CC BY 4.0 (https://www.onetcenter.org/database.html). Software roles add a hand-tuned layer on top of those titles.",
+  "roles": [
+    {
+      "id": "machine-learning-engineer",
+      "title": "Machine Learning Engineer",
+      "soc": "15-2051.00",
+      "domain": "software",
+      "layer": "tech",
+      "synonyms": ["ML Engineer", "MLE", "AI Engineer"],
+      "adjacent": [
+        { "id": "applied-scientist", "weight": 0.85 },
+        { "id": "mlops-engineer", "weight": 0.85 },
+        { "id": "research-engineer", "weight": 0.85 },
+        { "id": "computer-vision-engineer", "weight": 0.85 },
+        { "id": "data-scientist", "weight": 0.75 },
+        { "id": "data-engineer", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "data-scientist",
+      "title": "Data Scientist",
+      "soc": "15-2051.00",
+      "domain": "software",
+      "layer": "tech",
+      "synonyms": ["ML Scientist"],
+      "adjacent": [
+        { "id": "machine-learning-engineer", "weight": 0.75 },
+        { "id": "applied-scientist", "weight": 0.85 },
+        { "id": "research-scientist", "weight": 0.85 },
+        { "id": "analytics-engineer", "weight": 0.75 },
+        { "id": "data-analyst", "weight": 0.7 },
+        { "id": "statistician", "weight": 0.8 }
+      ]
+    },
+    {
+      "id": "applied-scientist",
+      "title": "Applied Scientist",
+      "soc": "15-1221.00",
+      "domain": "software",
+      "layer": "tech",
+      "synonyms": ["Applied Science Researcher"],
+      "adjacent": [
+        { "id": "machine-learning-engineer", "weight": 0.85 },
+        { "id": "data-scientist", "weight": 0.8 },
+        { "id": "research-scientist", "weight": 0.85 }
+      ]
+    },
+    {
+      "id": "mlops-engineer",
+      "title": "MLOps Engineer",
+      "soc": "15-1252.00",
+      "domain": "software",
+      "layer": "tech",
+      "synonyms": ["ML Platform Engineer"],
+      "adjacent": [
+        { "id": "machine-learning-engineer", "weight": 0.85 },
+        { "id": "data-engineer", "weight": 0.75 },
+        { "id": "devops-engineer", "weight": 0.7 }
+      ]
+    },
+    {
+      "id": "research-engineer",
+      "title": "Research Engineer",
+      "soc": "15-1221.00",
+      "domain": "software",
+      "layer": "tech",
+      "synonyms": ["Research Software Engineer"],
+      "adjacent": [
+        { "id": "machine-learning-engineer", "weight": 0.85 },
+        { "id": "research-scientist", "weight": 0.8 }
+      ]
+    },
+    {
+      "id": "computer-vision-engineer",
+      "title": "Computer Vision Engineer",
+      "soc": "15-2051.00",
+      "domain": "software",
+      "layer": "tech",
+      "synonyms": ["CV Engineer"],
+      "adjacent": [
+        { "id": "machine-learning-engineer", "weight": 0.85 }
+      ]
+    },
+    {
+      "id": "data-engineer",
+      "title": "Data Engineer",
+      "soc": "15-1243.00",
+      "domain": "software",
+      "layer": "tech",
+      "synonyms": ["Data Platform Engineer"],
+      "adjacent": [
+        { "id": "machine-learning-engineer", "weight": 0.6 },
+        { "id": "data-scientist", "weight": 0.7 },
+        { "id": "analytics-engineer", "weight": 0.85 }
+      ]
+    },
+    {
+      "id": "analytics-engineer",
+      "title": "Analytics Engineer",
+      "soc": "15-2051.01",
+      "domain": "software",
+      "layer": "tech",
+      "synonyms": ["Analytics Engineering"],
+      "adjacent": [
+        { "id": "data-scientist", "weight": 0.75 },
+        { "id": "data-engineer", "weight": 0.8 },
+        { "id": "data-analyst", "weight": 0.7 }
+      ]
+    },
+    {
+      "id": "data-analyst",
+      "title": "Data Analyst",
+      "soc": "15-2051.01",
+      "domain": "software",
+      "layer": "tech",
+      "synonyms": ["BI Analyst", "Business Analyst"],
+      "adjacent": [
+        { "id": "data-scientist", "weight": 0.7 },
+        { "id": "analytics-engineer", "weight": 0.75 }
+      ]
+    },
+    {
+      "id": "research-scientist",
+      "title": "Research Scientist",
+      "soc": "15-1221.00",
+      "domain": "software",
+      "layer": "tech",
+      "synonyms": ["Research Scientist II"],
+      "adjacent": [
+        { "id": "data-scientist", "weight": 0.85 },
+        { "id": "applied-scientist", "weight": 0.85 }
+      ]
+    },
+    {
+      "id": "statistician",
+      "title": "Statistician",
+      "soc": "15-2041.00",
+      "domain": "software",
+      "layer": "onet",
+      "synonyms": ["Statistical Analyst"],
+      "adjacent": [
+        { "id": "data-scientist", "weight": 0.8 }
+      ]
+    },
+    {
+      "id": "software-engineer",
+      "title": "Software Engineer",
+      "soc": "15-1252.00",
+      "domain": "software",
+      "layer": "tech",
+      "synonyms": ["Software Developer", "Backend Engineer"],
+      "adjacent": [
+        { "id": "devops-engineer", "weight": 0.8 },
+        { "id": "data-engineer", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "devops-engineer",
+      "title": "DevOps Engineer",
+      "soc": "15-1244.00",
+      "domain": "software",
+      "layer": "tech",
+      "synonyms": ["Site Reliability Engineer", "SRE"],
+      "adjacent": [
+        { "id": "software-engineer", "weight": 0.8 },
+        { "id": "mlops-engineer", "weight": 0.65 }
+      ]
+    },
+    {
+      "id": "product-manager",
+      "title": "Product Manager",
+      "soc": "11-2021.00",
+      "domain": "software",
+      "layer": "onet",
+      "synonyms": ["Product Owner"],
+      "adjacent": [
+        { "id": "product-designer", "weight": 0.8 },
+        { "id": "software-engineer", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "registered-nurse",
+      "title": "Registered Nurse",
+      "soc": "29-1141.00",
+      "domain": "health",
+      "layer": "onet",
+      "synonyms": ["Nurse", "RN", "Staff Nurse"],
+      "adjacent": [
+        { "id": "clinical-nurse-specialist", "weight": 0.85 },
+        { "id": "nurse-practitioner", "weight": 0.8 },
+        { "id": "licensed-practical-nurse", "weight": 0.7 },
+        { "id": "nursing-assistant", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "clinical-nurse-specialist",
+      "title": "Clinical Nurse Specialist",
+      "soc": "29-1141.04",
+      "domain": "health",
+      "layer": "onet",
+      "synonyms": ["Clinical Nurse"],
+      "adjacent": [
+        { "id": "registered-nurse", "weight": 0.85 }
+      ]
+    },
+    {
+      "id": "nurse-practitioner",
+      "title": "Nurse Practitioner",
+      "soc": "29-1171.00",
+      "domain": "health",
+      "layer": "onet",
+      "synonyms": ["Family Nurse Practitioner", "NP"],
+      "adjacent": [
+        { "id": "registered-nurse", "weight": 0.8 },
+        { "id": "clinical-nurse-specialist", "weight": 0.65 }
+      ]
+    },
+    {
+      "id": "licensed-practical-nurse",
+      "title": "Licensed Practical Nurse",
+      "soc": "29-2061.00",
+      "domain": "health",
+      "layer": "onet",
+      "synonyms": ["LPN", "Licensed Vocational Nurse"],
+      "adjacent": [
+        { "id": "registered-nurse", "weight": 0.8 },
+        { "id": "nursing-assistant", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "nursing-assistant",
+      "title": "Nursing Assistant",
+      "soc": "31-1131.00",
+      "domain": "health",
+      "layer": "onet",
+      "synonyms": ["CNA", "Patient Care Assistant"],
+      "adjacent": [
+        { "id": "registered-nurse", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "electrician",
+      "title": "Electrician",
+      "soc": "47-2111.00",
+      "domain": "trades",
+      "layer": "onet",
+      "synonyms": ["Journeyman Electrician", "Electrical Technician"],
+      "adjacent": [
+        { "id": "hvac-technician", "weight": 0.8 },
+        { "id": "plumber", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "plumber",
+      "title": "Plumber",
+      "soc": "47-2152.00",
+      "domain": "trades",
+      "layer": "onet",
+      "synonyms": ["Pipefitter"],
+      "adjacent": [
+        { "id": "hvac-technician", "weight": 0.8 },
+        { "id": "electrician", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "carpenter",
+      "title": "Carpenter",
+      "soc": "47-2031.00",
+      "domain": "trades",
+      "layer": "onet",
+      "synonyms": ["Finish Carpenter"],
+      "adjacent": [
+        { "id": "welder", "weight": 0.8 },
+        { "id": "electrician", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "welder",
+      "title": "Welder",
+      "soc": "51-4121.00",
+      "domain": "trades",
+      "layer": "onet",
+      "synonyms": ["Welding Technician"],
+      "adjacent": [
+        { "id": "carpenter", "weight": 0.8 },
+        { "id": "plumber", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "hvac-technician",
+      "title": "HVAC Technician",
+      "soc": "49-9021.00",
+      "domain": "trades",
+      "layer": "onet",
+      "synonyms": ["HVAC Installer"],
+      "adjacent": [
+        { "id": "electrician", "weight": 0.8 },
+        { "id": "plumber", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "accountant",
+      "title": "Accountant",
+      "soc": "13-2011.00",
+      "domain": "finance",
+      "layer": "onet",
+      "synonyms": ["Staff Accountant", "CPA"],
+      "adjacent": [
+        { "id": "auditor", "weight": 0.85 },
+        { "id": "bookkeeper", "weight": 0.75 },
+        { "id": "financial-analyst", "weight": 0.7 }
+      ]
+    },
+    {
+      "id": "auditor",
+      "title": "Auditor",
+      "soc": "13-2011.02",
+      "domain": "finance",
+      "layer": "onet",
+      "synonyms": ["Internal Auditor"],
+      "adjacent": [
+        { "id": "accountant", "weight": 0.85 },
+        { "id": "bookkeeper", "weight": 0.65 }
+      ]
+    },
+    {
+      "id": "bookkeeper",
+      "title": "Bookkeeper",
+      "soc": "43-3031.00",
+      "domain": "finance",
+      "layer": "onet",
+      "synonyms": ["Bookkeeping Clerk"],
+      "adjacent": [
+        { "id": "accountant", "weight": 0.8 },
+        { "id": "auditor", "weight": 0.65 }
+      ]
+    },
+    {
+      "id": "financial-analyst",
+      "title": "Financial Analyst",
+      "soc": "13-2051.00",
+      "domain": "finance",
+      "layer": "onet",
+      "synonyms": ["Finance Analyst"],
+      "adjacent": [
+        { "id": "accountant", "weight": 0.8 },
+        { "id": "financial-advisor", "weight": 0.65 }
+      ]
+    },
+    {
+      "id": "financial-advisor",
+      "title": "Financial Advisor",
+      "soc": "13-2052.00",
+      "domain": "finance",
+      "layer": "onet",
+      "synonyms": ["Personal Financial Advisor"],
+      "adjacent": [
+        { "id": "financial-analyst", "weight": 0.65 }
+      ]
+    },
+    {
+      "id": "teacher",
+      "title": "Teacher",
+      "soc": "25-2021.00",
+      "domain": "education",
+      "layer": "onet",
+      "synonyms": ["School Teacher", "Classroom Teacher"],
+      "adjacent": [
+        { "id": "teacher-assistant", "weight": 0.8 },
+        { "id": "professor", "weight": 0.65 },
+        { "id": "school-counselor", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "teacher-assistant",
+      "title": "Teacher Assistant",
+      "soc": "25-9045.00",
+      "domain": "education",
+      "layer": "onet",
+      "synonyms": ["Teaching Assistant", "Paraprofessional"],
+      "adjacent": [
+        { "id": "teacher", "weight": 0.8 },
+        { "id": "school-counselor", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "professor",
+      "title": "Professor",
+      "soc": "25-1191.00",
+      "domain": "education",
+      "layer": "onet",
+      "synonyms": ["Assistant Professor"],
+      "adjacent": [
+        { "id": "teacher", "weight": 0.8 },
+        { "id": "teacher-assistant", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "school-counselor",
+      "title": "School Counselor",
+      "soc": "21-1012.00",
+      "domain": "education",
+      "layer": "onet",
+      "synonyms": ["Guidance Counselor"],
+      "adjacent": [
+        { "id": "teacher", "weight": 0.8 },
+        { "id": "teacher-assistant", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "cook",
+      "title": "Cook",
+      "soc": "35-2014.00",
+      "domain": "hospitality",
+      "layer": "onet",
+      "synonyms": ["Line Cook", "Prep Cook"],
+      "adjacent": [
+        { "id": "chef", "weight": 0.85 },
+        { "id": "waiter", "weight": 0.6 },
+        { "id": "hotel-manager", "weight": 0.65 }
+      ]
+    },
+    {
+      "id": "chef",
+      "title": "Chef",
+      "soc": "35-1011.00",
+      "domain": "hospitality",
+      "layer": "onet",
+      "synonyms": ["Sous Chef"],
+      "adjacent": [
+        { "id": "cook", "weight": 0.85 },
+        { "id": "waiter", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "waiter",
+      "title": "Waiter",
+      "soc": "35-3031.00",
+      "domain": "hospitality",
+      "layer": "onet",
+      "synonyms": ["Server", "Waitstaff"],
+      "adjacent": [
+        { "id": "cook", "weight": 0.8 },
+        { "id": "hotel-manager", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "hotel-manager",
+      "title": "Hotel Manager",
+      "soc": "11-9081.00",
+      "domain": "hospitality",
+      "layer": "onet",
+      "synonyms": ["Lodging Manager"],
+      "adjacent": [
+        { "id": "cook", "weight": 0.8 },
+        { "id": "housekeeper", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "housekeeper",
+      "title": "Housekeeper",
+      "soc": "37-2012.00",
+      "domain": "hospitality",
+      "layer": "onet",
+      "synonyms": ["Room Attendant"],
+      "adjacent": [
+        { "id": "hotel-manager", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "sales-representative",
+      "title": "Sales Representative",
+      "soc": "41-4012.00",
+      "domain": "sales",
+      "layer": "onet",
+      "synonyms": ["Account Executive", "Sales Associate"],
+      "adjacent": [
+        { "id": "marketing-manager", "weight": 0.8 },
+        { "id": "cashier", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "cashier",
+      "title": "Cashier",
+      "soc": "41-2011.00",
+      "domain": "sales",
+      "layer": "onet",
+      "synonyms": ["Retail Cashier"],
+      "adjacent": [
+        { "id": "sales-representative", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "marketing-manager",
+      "title": "Marketing Manager",
+      "soc": "11-2021.00",
+      "domain": "sales",
+      "layer": "onet",
+      "synonyms": ["Marketing Lead"],
+      "adjacent": [
+        { "id": "sales-representative", "weight": 0.7 }
+      ]
+    },
+    {
+      "id": "truck-driver",
+      "title": "Truck Driver",
+      "soc": "53-3032.00",
+      "domain": "logistics",
+      "layer": "onet",
+      "synonyms": ["CDL Driver", "Delivery Driver"],
+      "adjacent": [
+        { "id": "logistics-coordinator", "weight": 0.8 },
+        { "id": "warehouse-associate", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "logistics-coordinator",
+      "title": "Logistics Coordinator",
+      "soc": "13-1081.00",
+      "domain": "logistics",
+      "layer": "onet",
+      "synonyms": ["Logistics Specialist"],
+      "adjacent": [
+        { "id": "truck-driver", "weight": 0.65 }
+      ]
+    },
+    {
+      "id": "customer-service",
+      "title": "Customer Service Representative",
+      "soc": "43-4051.00",
+      "domain": "sales",
+      "layer": "onet",
+      "synonyms": ["Customer Service"],
+      "adjacent": [
+        { "id": "cashier", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "warehouse-associate",
+      "title": "Warehouse Associate",
+      "soc": "53-7062.00",
+      "domain": "logistics",
+      "layer": "onet",
+      "synonyms": ["Warehouse Worker"],
+      "adjacent": [
+        { "id": "logistics-coordinator", "weight": 0.7 }
+      ]
+    },
+    {
+      "id": "retail-associate",
+      "title": "Retail Associate",
+      "soc": "41-2031.00",
+      "domain": "sales",
+      "layer": "onet",
+      "synonyms": ["Retail Salesperson", "Sales Associate"],
+      "adjacent": [
+        { "id": "cashier", "weight": 0.75 },
+        { "id": "sales-representative", "weight": 0.7 }
+      ]
+    },
+    {
+      "id": "product-designer",
+      "title": "Product Designer",
+      "soc": "27-1021.00",
+      "domain": "design",
+      "layer": "tech",
+      "synonyms": ["UX Designer", "Product Design"],
+      "adjacent": [
+        { "id": "product-manager", "weight": 0.8 },
+        { "id": "software-engineer", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "mechanical-engineer",
+      "title": "Mechanical Engineer",
+      "soc": "17-2141.00",
+      "domain": "trades",
+      "layer": "onet",
+      "synonyms": ["Mechanical Designer"],
+      "adjacent": [
+        { "id": "automotive-technician", "weight": 0.65 }
+      ]
+    },
+    {
+      "id": "automotive-technician",
+      "title": "Automotive Technician",
+      "soc": "49-3023.00",
+      "domain": "trades",
+      "layer": "onet",
+      "synonyms": ["Auto Mechanic"],
+      "adjacent": [
+        { "id": "mechanical-engineer", "weight": 0.65 }
+      ]
+    }
+  ]
+}
