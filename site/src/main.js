@@ -115,6 +115,11 @@ function show(view) {
   });
 }
 
+function onPublicSite() {
+  const host = location.hostname;
+  return location.protocol === "file:" || host === "github.io" || host.endsWith(".github.io");
+}
+
 function toast(msg) {
   const el = $("toast");
   el.textContent = msg;
@@ -1035,7 +1040,7 @@ function bootChrome() {
       toast("Turn on live boards on this computer first. The public site never scrapes.");
       return;
     }
-    if (location.protocol === "file:" || location.hostname.endsWith("github.io")) {
+    if (onPublicSite()) {
       toast("Live board search only runs in the Mac app.");
       return;
     }
@@ -1065,7 +1070,7 @@ function bootChrome() {
       toast("Turn on mail sync first. It stays off until you choose it.");
       return;
     }
-    if (location.hostname.endsWith("github.io") || location.protocol === "file:") {
+    if (onPublicSite()) {
       toast("Mail sync runs in the Mac app, not on the public site.");
       return;
     }

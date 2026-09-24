@@ -1,7 +1,7 @@
 import { apiBase } from "./sync.js";
 import { clampLookback } from "./text.js";
 
-export const JOBS_API = "https://jobs-api.ajeenckya.workers.dev";
+export const JOBS_API = "https://jobs-api.ajeenckyam8.workers.dev";
 export const SEARCH_LIMIT = 300;
 
 export function familyOf(text) {
