@@ -63,7 +63,8 @@ for (const size of views) {
   });
 }
 
-test("opens from cache when the network is off", async ({ page, context }) => {
+test("opens from cache when the network is off", async ({ page, context, browserName }) => {
+  test.skip(browserName === "webkit", "WebKit raises an internal error on reload while offline.");
   await page.goto("./");
   await page.evaluate(async () => {
     const ready = await navigator.serviceWorker.ready;

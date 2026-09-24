@@ -5,6 +5,7 @@ const installedChrome = process.env.CI ? {} : { channel: "chrome" };
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60000,
+  workers: process.env.CI ? 1 : undefined,
   outputDir: "test-results",
   use: {
     baseURL: "http://127.0.0.1:4174",

@@ -55,12 +55,12 @@ export function sampleJobs() {
 }
 
 export async function stubSearch(page, jobs = sampleJobs()) {
-  await page.route((url) => url.pathname.includes("/v1/search"), (route) => route.fulfill({
+  await page.route("**/v1/search**", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ jobs: jobs.slice(0, 300) }),
   }));
-  await page.route((url) => url.pathname.includes("/v1/profile-vector"), (route) => {
+  await page.route("**/v1/profile-vector**", (route) => {
     const body = route.request().postData() || "";
     if (body.includes("resume_text") || body.includes("resume_file")) {
       return route.fulfill({ status: 400, contentType: "application/json", body: "{\"ok\":false}" });

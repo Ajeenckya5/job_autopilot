@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { sampleJobs, stubSearch } from "./stub-search.js";
 
+test.use({ serviceWorkers: "block" });
+
 test("the count matches the rows when the location is Remote", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {
