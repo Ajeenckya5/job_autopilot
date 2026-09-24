@@ -49,6 +49,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ea080f698fdf34fa24a55dbd904ad90a
+          wranglerVersion: "4.138.0"
           workingDirectory: worker
           command: d1 migrations apply jobs --remote
       - name: Deploy the jobs API
@@ -56,6 +57,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ea080f698fdf34fa24a55dbd904ad90a
+          wranglerVersion: "4.138.0"
           workingDirectory: worker
           command: deploy
       - name: Deploy push
@@ -63,5 +65,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ea080f698fdf34fa24a55dbd904ad90a
+          wranglerVersion: "4.138.0"
           workingDirectory: worker
           command: deploy --config wrangler.push.toml
