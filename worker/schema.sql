@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   family TEXT NOT NULL DEFAULT '',
   company TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT '',
+  posted_at TEXT NOT NULL DEFAULT '',
   cursor INTEGER NOT NULL,
   content_hash TEXT NOT NULL,
   payload TEXT NOT NULL
@@ -11,6 +12,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_cursor ON jobs(cursor);
 CREATE INDEX IF NOT EXISTS idx_jobs_filter ON jobs(country, family, cursor);
+CREATE INDEX IF NOT EXISTS idx_jobs_search ON jobs(country, family, posted_at);
 
 CREATE TABLE IF NOT EXISTS company_weeks (
   company TEXT NOT NULL,

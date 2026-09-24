@@ -6,8 +6,12 @@ import {
   eventName,
   funnelRows,
   ingestNext,
+  jobById,
   jobsSince,
+  profileVectorInput,
+  embedProfile,
   recordEvent,
+  searchJobs,
   sha256,
   upsertJobs,
 } from "./jobs.js";
@@ -27,6 +31,41 @@ export function createApp() {
     if (c.env.VAPID_PUBLIC_KEY) config.vapid_public_key = c.env.VAPID_PUBLIC_KEY;
     delete config.VAPID_PRIVATE_KEY;
     return c.json(config);
+  });
+
+  app.get("/v1/search", async (c) => {
+    const config = await readConfig(c.env);
+    if (config.api === false) return c.json({ jobs: [], disabled: true });
+    const url = new URL(c.req.url);
+    const page = await searchJobs(c.env.DB, {
+      countries: url.searchParams.getAll("country"),
+      families: url.searchParams.getAll("family"),
+      since: url.searchParams.get("since") || "",
+      limit: url.searchParams.get("limit") || "300",
+    });
+    return c.json(page);
+  });
+
+  app.post("/v1/profile-vector", async (c) => {
+    const raw = await c.req.text();
+    if (raw.length > 8000) return c.json({ ok: false }, 413);
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (_) {
+      return c.json({ ok: false }, 400);
+    }
+    const body = profileVectorInput(parsed);
+    if (body.error) return c.json({ ok: false }, 400);
+    return c.json({ vector: embedProfile(body) });
+  });
+
+  app.get("/v1/job/:id", async (c) => {
+    const config = await readConfig(c.env);
+    if (config.api === false) return c.json({ description_text: "" }, 404);
+    const job = await jobById(c.env.DB, c.req.param("id"));
+    if (!job) return c.json({ description_text: "" }, 404);
+    return c.json(job);
   });
 
   app.get("/v1/jobs", async (c) => {

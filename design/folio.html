@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Folio — Job Autopilot</title>
+  <style>
+    :root {
+      --bg: #f7f6f2; --surface: #fff; --ink: #111; --muted: #5c5c56;
+      --rule: #111; --soft: #e6e4dc; --accent: #0e6b45; --good: #0e6b45; --warn: #8a5a00; --bad: #9b2c2c;
+      --serif: Baskerville, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+      --sans: "Avenir Next", "Segoe UI", sans-serif;
+    }
+    html[data-theme="dark"] {
+      --bg: #101210; --surface: #161916; --ink: #f3f4ef; --muted: #a7ada3;
+      --rule: #f3f4ef; --soft: #2a2e2a; --accent: #8fd0aa; --good: #8fd0aa; --warn: #e2c07a; --bad: #f0a8a8;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.4; }
+    .wrap { max-width: 880px; margin: 0 auto; padding: 24px 18px 56px; }
+    .kicker { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; margin: 0 0 6px; }
+    h1, h2 { font-family: var(--serif); font-weight: 400; margin: 0; }
+    h1 { font-size: 44px; line-height: 0.95; }
+    h2 { font-size: 26px; border-bottom: 1px solid var(--rule); padding-bottom: 6px; }
+    .lede, .muted { color: var(--muted); }
+    .screen { background: var(--surface); border: 1px solid var(--rule); padding: 16px 16px 18px; margin: 18px 0; }
+    .label { font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; margin: 0 0 10px; }
+    .btn { font: inherit; border: 1px solid var(--rule); background: transparent; color: var(--ink); padding: 6px 12px; border-radius: 0; }
+    .btn.primary { background: var(--ink); color: var(--bg); }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+    .chip { border-bottom: 1px solid var(--accent); padding: 2px 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { text-align: left; padding: 8px 0; border-bottom: 1px solid var(--soft); vertical-align: top; }
+    th { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
+    .num { font-variant-numeric: tabular-nums; font-family: var(--serif); font-size: 28px; }
+    q { color: var(--muted); }
+    .met { color: var(--good); } .partial { color: var(--warn); } .missing { color: var(--bad); }
+    .error { color: var(--bad); }
+    .screens { display: flex; gap: 12px; flex-wrap: wrap; margin: 14px 0 0; }
+    .screens a { color: inherit; }
+    .dark-board { --bg: #101210; --surface: #161916; --ink: #f3f4ef; --muted: #a7ada3; --rule: #f3f4ef; --soft: #2a2e2a; --accent: #8fd0aa; --good: #8fd0aa; --warn: #e2c07a; --bad: #f0a8a8; background: var(--bg); color: var(--ink); padding: 16px; margin-top: 28px; }
+    @media (max-width: 640px) {
+      h1 { font-size: 34px; }
+      .wrap { padding: 14px 12px 36px; }
+      table, thead, tbody, tr, th, td { display: block; width: 100%; }
+      thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+      tr { padding: 12px 0; border-bottom: 1px solid var(--soft); }
+      td { border: 0; padding: 2px 0; }
+      td.num { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <p class="kicker">Direction · Folio</p>
+    <h1>Set like a contents page</h1>
+    <p class="lede">Black rules, no rounded cards. Scores sit in a column. The tracker is a list, not a board.</p>
+    <nav class="screens">
+      <a href="#onboarding">Onboarding</a>
+      <a href="#home">Home</a>
+      <a href="#detail">Detail</a>
+      <a href="#tracker">Tracker</a>
+      <a href="#empty">Empty</a>
+      <a href="#error">Error</a>
+      <a href="#dark">Dark</a>
+    </nav>
+
+    <section class="screen" id="onboarding">
+      <p class="label">Onboarding</p>
+      <h2>Find roles that fit</h2>
+      <p class="lede">The resume file is read in this browser and then discarded.</p>
+      <p class="label">We read</p>
+      <div class="chips"><span class="chip">Python</span><span class="chip">PyTorch</span><span class="chip">SQL</span><span class="chip">Machine learning</span></div>
+      <button class="btn primary" type="button">Save and search</button>
+    </section>
+
+    <section class="screen" id="home">
+      <p class="label">Home</p>
+      <div class="row"><h2>Closest matches</h2><button class="btn primary" type="button">Search</button></div>
+      <p class="muted">Found 18 roles.</p>
+      <table>
+        <thead><tr><th>Role</th><th>Fit</th><th>Score</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>Staff Machine Learning Engineer</strong><br><span class="muted">Northwind · United States · Remote</span></td>
+            <td>3 of 5 must-haves met</td>
+            <td class="num">91</td>
+          </tr>
+          <tr>
+            <td><strong>Data Scientist</strong><br><span class="muted">Northwind · Chicago</span></td>
+            <td>2 of 5 must-haves met</td>
+            <td class="num">78</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="screen" id="detail">
+      <p class="label">Job detail</p>
+      <h2>Staff Machine Learning Engineer</h2>
+      <p class="muted">Asks 6+ years, you have 7</p>
+      <table>
+        <tbody>
+          <tr><td class="met">Met</td><td>Python</td><td><q>Python, PyTorch, and SQL</q></td></tr>
+          <tr><td class="partial">Partial</td><td>Production models</td><td><q>shipped ranking models</q></td></tr>
+          <tr><td class="missing">Missing</td><td>Spark</td><td></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="screen" id="tracker">
+      <p class="label">Tracker</p>
+      <h2>Applications</h2>
+      <table>
+        <thead><tr><th>Status</th><th>Role</th><th>Next</th></tr></thead>
+        <tbody>
+          <tr><td>Saved</td><td>Data Scientist · Northwind</td><td>—</td></tr>
+          <tr><td>Applied</td><td>ML Engineer · Northwind</td><td>Follow up · 7 days</td></tr>
+          <tr><td>Interview</td><td>Applied Scientist · Northwind</td><td>Thursday</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="screen" id="empty">
+      <p class="label">Empty</p>
+      <h2>No roles yet</h2>
+      <p class="lede">Search asks for up to 300 matching roles.</p>
+      <button class="btn primary" type="button">Search</button>
+    </section>
+
+    <section class="screen" id="error">
+      <p class="label">Error</p>
+      <h2>Search is unavailable</h2>
+      <p class="error">The job list could not be loaded. Your saved roles are unchanged.</p>
+      <button class="btn primary" type="button">Try again</button>
+    </section>
+
+    <div class="dark-board" id="dark">
+      <p class="label">Dark</p>
+      <section class="screen" id="home-dark">
+        <p class="label">Home</p>
+        <div class="row"><h2>Closest matches</h2><button class="btn primary" type="button">Search</button></div>
+        <p class="muted">Found 18 roles.</p>
+        <table>
+          <tbody>
+            <tr>
+              <td><strong>Staff Machine Learning Engineer</strong><br><span class="muted">Northwind · Remote</span></td>
+              <td>3 of 5 must-haves met</td>
+              <td class="num">91</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section class="screen" id="tracker-dark">
+        <p class="label">Tracker</p>
+        <h2>Applications</h2>
+        <table>
+          <tbody>
+            <tr><td>Applied</td><td>ML Engineer · Northwind</td><td>Follow up · 7 days</td></tr>
+            <tr><td>Interview</td><td>Applied Scientist · Northwind</td><td>Thursday</td></tr>
+          </tbody>
+        </table>
+      </section>
+      <section class="screen" id="empty-dark">
+        <p class="label">Empty</p>
+        <h2>No roles yet</h2>
+        <p class="lede">Search asks for up to 300 matching roles.</p>
+      </section>
+      <section class="screen" id="error-dark">
+        <p class="label">Error</p>
+        <h2>Search is unavailable</h2>
+        <p class="error">The job list could not be loaded. Your saved roles are unchanged.</p>
+      </section>
+    </div>
+  </div>
+  <script>if (new URLSearchParams(location.search).get("theme") === "dark") document.documentElement.dataset.theme = "dark";</script>
+</body>
+</html>

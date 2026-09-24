@@ -1,0 +1,10 @@
+[
+  "python", "java", "javascript", "typescript", "sql", "react", "pytorch", "tensorflow",
+  "nlp", "machine learning", "deep learning", "aws", "gcp", "azure", "computer vision",
+  "docker", "kubernetes", "linux", "excel", "nursing", "patient", "triage", "charting",
+  "logistics", "retail", "sales", "teaching", "curriculum", "classroom", "accounting",
+  "gaap", "audit", "figma", "design", "research", "statistics", "c++", "golang", "spark",
+  "hadoop", "pandas", "electrical", "wiring", "plumbing", "welding", "hvac", "cooking",
+  "hospitality", "guest", "forklift", "automotive", "matlab", "airflow", "tableau",
+  "dbt", "cdl", "counseling"
+]
