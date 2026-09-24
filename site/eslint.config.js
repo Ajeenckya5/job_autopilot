@@ -3,7 +3,7 @@ import js from "@eslint/js";
 export default [
   js.configs.recommended,
   {
-    files: ["src/**/*.js", "test/**/*.js"],
+    files: ["src/**/*.js", "test/**/*.js", "src/**/*.mjs", "test/**/*.mjs"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
@@ -25,11 +25,15 @@ export default [
         confirm: "readonly",
         navigator: "readonly",
         URL: "readonly",
+        AbortController: "readonly",
         Blob: "readonly",
         File: "readonly",
         TextEncoder: "readonly",
         setTimeout: "readonly",
         clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        performance: "readonly",
         DataTransfer: "readonly",
         self: "readonly",
       },

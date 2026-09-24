@@ -144,7 +144,7 @@ export function postingKey(job) {
   const title = String(job.title || "").replace(/\s+/g, " ").trim().toLowerCase();
   const desc = String(job.description_text || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 480);
   const url = canonicalUrl(job.url);
-  if (desc.length >= 80) return `${job.source || ""}|${company}|${title}|${desc}`;
+  if (desc.length >= 80) return `${company}|${title}|${desc}`;
   if (url) return `url|${url}`;
   return `id|${job.id || ""}`;
 }
@@ -178,6 +178,7 @@ export function collapsePostings(jobs) {
     const keep = trackerRank(incoming) > trackerRank(prev) ? incoming : prev;
     const other = keep === prev ? incoming : prev;
     keep.location_raw = joinLocations(keep.location_raw, other.location_raw);
+    keep.sources = [...new Set([keep.source, other.source, ...(keep.sources || []), ...(other.sources || [])].filter(Boolean))];
     const seen = new Set();
     keep.locations = [...(keep.locations || []), ...(other.locations || [])].filter((row) => {
       const blob = JSON.stringify(row);

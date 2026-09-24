@@ -23,7 +23,7 @@ export async function readSavedJobs(db) {
 
 export async function writeSavedJobs(db, rows) {
   const tx = db.transaction("jobs", "readwrite");
-  await tx.store.clear();
+  const writes = [tx.store.clear()];
   (rows || []).forEach((row, index) => {
     if (!row || typeof row !== "object") return;
     if (!row.status || row.status === "new") return;
@@ -31,9 +31,9 @@ export async function writeSavedJobs(db, rows) {
     delete copy.embedding;
     delete copy.vector;
     if (copy.description_text) copy.description_text = String(copy.description_text).slice(0, 400);
-    tx.store.put(copy);
+    writes.push(tx.store.put(copy));
   });
-  await tx.done;
+  await Promise.all([...writes, tx.done]);
 }
 
 export async function migrateLegacyJobs(db) {

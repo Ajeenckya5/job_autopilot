@@ -13,7 +13,7 @@ autopilot.sqlite
 *.sqlite-journal
 ml/
 ops/
-data/
+/data/
 *.xlsx
 digest.json
 chunk_stats.json

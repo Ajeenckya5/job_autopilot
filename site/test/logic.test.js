@@ -158,6 +158,18 @@ describe("skills, cards, and look-back", () => {
     expect(rows[0].location_raw).toContain("Austin, TX");
   });
 
+  it("merges the same posting across sources", () => {
+    const desc = "Build ranking models in Python. ".repeat(6);
+    const rows = collapsePostings([
+      { id: "a", source: "greenhouse", company: "Northwind", title: "Machine Learning Engineer", location_raw: "Remote", description_text: desc, url: "https://boards.example/a" },
+      { id: "b", source: "lever", company: "Northwind", title: "Machine Learning Engineer", location_raw: "United States", description_text: desc, url: "https://jobs.example/b" },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].sources).toEqual(["greenhouse", "lever"]);
+    expect(rows[0].location_raw).toContain("Remote");
+    expect(rows[0].location_raw).toContain("United States");
+  });
+
   it("says how many roles a 30 day look-back would add", () => {
     const now = Date.parse("2026-09-22T12:00:00Z");
     const profile = {

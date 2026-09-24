@@ -1,9 +1,7 @@
-import { migrateLegacyJobs, openStore, readFeed, upsertFeed, writeSavedJobs } from "./db.js";
+import { migrateLegacyJobs, openStore, writeSavedJobs } from "./db.js";
 import { jobsToXlsx } from "./logic/excel.js";
-import { postEvent } from "./logic/events.js";
-import { arrangeJobs, cleanCompany, collapsePostings, rankAll, searchPool, selectJobs } from "./logic/jobs.js";
-import { apiBase, applyDelta, newSinceLabel, pullConfig, pullDelta, startDeltaSync } from "./logic/sync.js";
-import { hiringTrend, trendIndex } from "./logic/trend.js";
+import { cleanCompany, collapsePostings, rankAll, searchPool, selectJobs } from "./logic/jobs.js";
+import { apiBase, pullConfig } from "./logic/sync.js";
 import { familyChips, noteFeedback, resetFeedback } from "./logic/match.js";
 import { absorbResume, profileFromResume } from "./logic/profile.js";
 import { fetchCandidates, fetchJobText, fetchProfileVector } from "./logic/search.js";
@@ -25,14 +23,8 @@ const JOBS = "jobAutopilotJobs";
 const DRAFT = "jobAutopilotDraft";
 let dragId = "";
 let jobCache = [];
-let feedCache = [];
 let configCache = { sync: true, push: true, events: true, insights: true, api: true };
-let badgeSince = Date.now();
-let newCount = 0;
 let persistChain = Promise.resolve();
-let uiWorker = null;
-let uiGeneration = 0;
-let workerReady = false;
 let llmConfig = {};
 let searchBusy = false;
 
@@ -1195,11 +1187,12 @@ function bootChrome() {
   const drawPalette = () => {
     const query = $("paletteInput").value.trim().toLowerCase();
     paletteList.replaceChildren();
-    commands.filter(([label]) => label.toLowerCase().includes(query)).forEach(([label, run]) => {
+    commands.filter(([label]) => label.toLowerCase().includes(query)).forEach(([label, run], index) => {
       const item = document.createElement("li");
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = label;
+      button.setAttribute("aria-selected", index === 0 ? "true" : "false");
       button.addEventListener("click", () => {
         $("palette").hidden = true;
         run();
@@ -1225,6 +1218,22 @@ function bootChrome() {
     }
     if (event.key === "Escape") {
       $("palette").hidden = true;
+      if ($("whatsNew")) $("whatsNew").hidden = true;
+      if (event.target === $("paletteInput") || event.target === $("jobSearch")) event.target.blur();
+      return;
+    }
+    if (!$("palette").hidden && (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Enter")) {
+      const buttons = [...paletteList.querySelectorAll("button")];
+      if (!buttons.length) return;
+      const current = Math.max(0, buttons.findIndex((button) => button.getAttribute("aria-selected") === "true"));
+      if (event.key === "Enter") {
+        event.preventDefault();
+        buttons[current].click();
+        return;
+      }
+      event.preventDefault();
+      const next = event.key === "ArrowDown" ? Math.min(buttons.length - 1, current + 1) : Math.max(0, current - 1);
+      buttons.forEach((button, index) => button.setAttribute("aria-selected", index === next ? "true" : "false"));
       return;
     }
     if (typing) return;
@@ -1240,7 +1249,7 @@ function bootChrome() {
       return;
     }
     chord = "";
-    if (key === "?") {
+    if (event.key === "?" || (event.shiftKey && event.key === "/")) {
       $("whatsNew").hidden = false;
       return;
     }

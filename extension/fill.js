@@ -11,7 +11,8 @@ function kindOf(host) {
 
 function labelFor(field) {
   const id = field.getAttribute("id");
-  const fromFor = id && document.querySelector(`label[for="${CSS.escape(id)}"]`);
+  const escapeId = globalThis.CSS?.escape || ((value) => String(value).replace(/(["\\#.:[\]()])/g, "\\$1"));
+  const fromFor = id && document.querySelector(`label[for="${escapeId(id)}"]`);
   const wrap = field.closest("label");
   const aria = field.getAttribute("aria-label") || "";
   return `${fromFor ? fromFor.textContent : ""} ${wrap ? wrap.textContent : ""} ${aria} ${field.name || ""} ${field.placeholder || ""}`.toLowerCase();
@@ -65,7 +66,7 @@ function paint(profile) {
   document.documentElement.appendChild(button);
 }
 
-const kind = kindOf(location.hostname);
+const kind = kindOf(globalThis.location?.hostname || "");
 if (kind && globalThis.chrome?.storage?.local) {
   chrome.storage.local.get("jobAutopilotFill", (stored) => {
     const profile = stored.jobAutopilotFill;
