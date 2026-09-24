@@ -1,4 +1,5 @@
 import catalog from "../catalog.json" with { type: "json" };
+import { embed } from "./embed.js";
 
 export const EVENT_NAMES = ["onboarding_step", "search_run", "apply_clicked"];
 
@@ -17,8 +18,8 @@ export const DEFAULT_CONFIG = {
     openrouter: "google/gemini-2.5-flash",
     ollama: "",
   },
-  llm_daily_cap: 100,
-  llm_top_n: 30,
+  llm_daily_cap: 50,
+  llm_top_n: 25,
   llm_concurrency: {
     gemini: 1,
     groq: 2,
@@ -57,6 +58,7 @@ export function publicJob(job) {
   row.updated_at = String(row.updated_at || row.posted_at || new Date().toISOString());
   row.posted_at = String(row.posted_at || row.updated_at);
   if (String(row.url || "").startsWith("http://")) row.url = `https://${String(row.url).slice(7)}`;
+  row.embedding = embed(`${row.title} ${row.description_text || ""} ${row.department || ""}`);
   return row;
 }
 
@@ -126,17 +128,18 @@ export async function upsertJobs(db, jobs) {
     const isNew = !existing;
     cursor += 1;
     await db.prepare(
-      `INSERT INTO jobs (id, country, family, company, updated_at, cursor, content_hash, payload)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO jobs (id, country, family, company, updated_at, posted_at, cursor, content_hash, payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          country = excluded.country,
          family = excluded.family,
          company = excluded.company,
          updated_at = excluded.updated_at,
+         posted_at = excluded.posted_at,
          cursor = excluded.cursor,
          content_hash = excluded.content_hash,
          payload = excluded.payload`,
-    ).bind(row.id, row.country, row.family, row.company, row.updated_at, cursor, hash, payload).run();
+    ).bind(row.id, row.country, row.family, row.company, row.updated_at, row.posted_at, cursor, hash, payload).run();
     if (isNew) {
       const week = weekStart(row.posted_at);
       await db.prepare(
@@ -148,6 +151,76 @@ export async function upsertJobs(db, jobs) {
   }
   await metaSet(db, "cursor", cursor);
   return { changed, cursor: String(cursor) };
+}
+
+export function searchLimit(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 300;
+  return Math.max(1, Math.min(300, Math.floor(n)));
+}
+
+function cleanList(values, count, length) {
+  if (!Array.isArray(values)) return null;
+  const list = values
+    .filter((value) => typeof value === "string")
+    .map((value) => value.replace(/\s+/g, " ").trim().slice(0, length))
+    .filter(Boolean)
+    .slice(0, count);
+  return list;
+}
+
+export function profileVectorInput(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { error: "invalid" };
+  const keys = Object.keys(raw);
+  if (keys.some((key) => key !== "skills" && key !== "roles")) return { error: "invalid" };
+  const skills = cleanList(raw.skills || [], 24, 48);
+  const roles = cleanList(raw.roles || [], 8, 80);
+  if (!skills || !roles || (!skills.length && !roles.length)) return { error: "invalid" };
+  return { skills, roles };
+}
+
+export function embedProfile({ skills, roles }) {
+  return embed(`${(skills || []).join(" ")} ${(roles || []).join(" ")}`);
+}
+
+export async function searchJobs(db, { countries, families, since, limit } = {}) {
+  const countryList = [...new Set((countries || []).map((value) => String(value || "").slice(0, 40)).filter(Boolean))].slice(0, 4);
+  const familyList = [...new Set((families || []).map((value) => String(value || "").slice(0, 40)).filter(Boolean))].slice(0, 4);
+  if (!countryList.length || !familyList.length) return { jobs: [] };
+  const cap = searchLimit(limit);
+  const sinceIso = String(since || "").slice(0, 40) || new Date(Date.now() - 14 * 86400000).toISOString();
+  const countryMarks = countryList.map(() => "?").join(",");
+  const familyMarks = familyList.map(() => "?").join(",");
+  const result = await db.prepare(
+    `SELECT payload FROM jobs
+     WHERE posted_at >= ?
+       AND country IN (${countryMarks})
+       AND family IN (${familyMarks})
+     ORDER BY posted_at DESC
+     LIMIT ?`,
+  ).bind(sinceIso, ...countryList, ...familyList, cap).all();
+  const jobs = (result.results || []).slice(0, cap).map((row) => {
+    const job = JSON.parse(row.payload);
+    if (!Array.isArray(job.embedding) || job.embedding.length !== 384) {
+      job.embedding = embed(`${job.title || ""} ${job.description_text || ""} ${job.department || ""}`);
+    }
+    if (job.description_text) job.description_text = String(job.description_text).slice(0, 4000);
+    return job;
+  });
+  return { jobs };
+}
+
+export async function jobById(db, id) {
+  const key = String(id || "").slice(0, 180);
+  if (!key) return null;
+  const row = await db.prepare("SELECT payload FROM jobs WHERE id = ?").bind(key).first();
+  if (!row) return null;
+  const job = JSON.parse(row.payload);
+  return {
+    id: String(job.id || key),
+    title: String(job.title || ""),
+    description_text: String(job.description_text || ""),
+  };
 }
 
 export async function jobsSince(db, since, country, family) {

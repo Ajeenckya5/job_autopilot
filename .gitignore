@@ -11,6 +11,7 @@ config_*.yaml
 autopilot.sqlite
 *.sqlite
 *.sqlite-journal
+*.sqlite.vacuum
 ml/
 ops/
 data/
@@ -61,7 +62,16 @@ env/
 .vscode/
 .idea/
 
-# Worker dependencies
+# Site build and local caches. Generated reports live only for the current run.
+node_modules/
+site/node_modules/
 worker/node_modules/
-
 worker/.wrangler/
+site/coverage/
+site/test-results/
+site/playwright-report/
+coverage/
+.lighthouseci/
+personas/report.html
+playwright-report/
+test-results/

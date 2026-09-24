@@ -29,6 +29,8 @@ from types import SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
+from local.llm_proxy import forward, keychain_set, keychain_status, migrate_config
+
 HERE = Path(__file__).resolve().parent
 STATIC_DIR = HERE / "docs" if (HERE / "docs" / "index.html").is_file() else HERE / "dashboard_static"
 SECRETS_PATH = HERE / "config.yaml"
@@ -953,7 +955,9 @@ def _run_scout() -> None:
             _scout_state["result"] = None
 
 
-def start_scout() -> dict[str, Any]:
+def start_scout(live_boards: bool = False) -> dict[str, Any]:
+    if not live_boards:
+        raise ValueError("Live board search is off. Turn it on in settings on this computer.")
     status = _setup_status()
     if not status.get("configured"):
         raise ValueError("finish setup before finding jobs")
@@ -1082,6 +1086,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if path == "/api/sync":
                 self._json(200, dict(_sync_state))
                 return
+            if path == "/api/llm/key":
+                self._json(200, {"providers": keychain_status()})
+                return
             self._serve_static(path)
         except Exception as e:
             log.exception("GET %s failed", path)
@@ -1118,10 +1125,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json(200, apply_setup(body, resume_bytes=resume_bytes, resume_name=resume_name))
                 return
             if path == "/api/scout":
-                self._json(200, start_scout())
+                body = self._read_json()
+                self._json(200, start_scout(bool(body.get("live_boards"))))
                 return
             if path == "/api/sync":
                 self._json(200, start_mail_sync())
+                return
+            if path == "/api/llm/key":
+                body = self._read_json()
+                keychain_set(str(body.get("provider") or ""), str(body.get("apiKey") or ""))
+                self._json(200, {"ok": True, "provider": str(body.get("provider") or "")})
+                return
+            if path == "/api/llm/migrate":
+                moved = migrate_config(SECRETS_PATH)
+                self._json(200, {"migrated": moved, "providers": keychain_status()})
+                return
+            if path == "/api/llm/complete":
+                body = self._read_json()
+                result = forward(body)
+                self._json(int(result["status"]), result["body"])
                 return
             if path == "/api/jobs/mark":
                 body = self._read_json()
@@ -1162,6 +1184,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-cache")
+        self.send_header(
+            "Content-Security-Policy-Report-Only",
+            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+            "connect-src 'self' https://jobs-api.ajeenckya.workers.dev https://boards-api.greenhouse.io https://api.lever.co https://api.ashbyhq.com "
+            "https://remotive.com https://www.arbeitnow.com https://generativelanguage.googleapis.com "
+            "https://api.groq.com https://api.openai.com https://api.anthropic.com https://openrouter.ai "
+            "https://*.ingest.sentry.io; base-uri 'self'; form-action 'self'",
+        )
         self.end_headers()
         self.wfile.write(data)
 
@@ -1182,6 +1212,8 @@ def main(host: str = "127.0.0.1", port: int = 8787, open_browser: bool = True) -
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    import core
+    core.maintain_local_stores(HERE)
     if not STATIC_DIR.is_dir():
         raise SystemExit(f"dashboard static files missing: {STATIC_DIR}")
     httpd = ThreadingHTTPServer((host, port), DashboardHandler)

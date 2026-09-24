@@ -1,0 +1,8 @@
+{
+  "name": "job-autopilot",
+  "private": true,
+  "packageManager": "pnpm@10.17.1",
+  "pnpm": {
+    "neverBuiltDependencies": ["@playwright/test", "playwright"]
+  }
+}

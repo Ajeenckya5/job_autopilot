@@ -16,7 +16,8 @@ import smtplib
 import sqlite3
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from logging.handlers import TimedRotatingFileHandler
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
@@ -1641,6 +1642,7 @@ class DB:
         self._ensure_columns()
         self.conn.commit()
         self._run_tag: str = ""
+        self.maintain()
 
     def _ensure_columns(self) -> None:
         jobs_cols = {
@@ -1663,6 +1665,24 @@ class DB:
             self.conn.execute(
                 "ALTER TABLE companies ADD COLUMN careers_unreachable INTEGER DEFAULT 0"
             )
+
+    def maintain(self) -> None:
+        """Drop jobs older than 45 days and VACUUM at most once a week."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=45)).isoformat()
+        self.conn.execute(
+            "DELETE FROM jobs WHERE COALESCE(NULLIF(posted_at, ''), first_seen) < ?",
+            (cutoff,),
+        )
+        self.conn.commit()
+        stamp = self.path.with_name(self.path.name + ".vacuum")
+        try:
+            due = (time.time() - stamp.stat().st_mtime) >= 7 * 86400
+        except OSError:
+            due = True
+        if not due:
+            return
+        self.conn.execute("VACUUM")
+        stamp.write_text(datetime.now(timezone.utc).isoformat(), encoding="utf-8")
 
     def set_run_tag(self, tag: str) -> None:
         """Set the run identifier for this scraping session. All new/refreshed
@@ -3239,14 +3259,50 @@ def apply_to_job(job: dict, cfg: Config, grok: Grok, mailer: Gmailer,
                        jd_summary=jd.get("jd_summary", ""))
 
 
+def rotate_logs(log_dir: Path, days: int = 7) -> None:
+    """Delete log files last written more than `days` ago."""
+    directory = Path(log_dir)
+    if not directory.is_dir():
+        return
+    cutoff = time.time() - days * 86400
+    for path in directory.iterdir():
+        if not path.is_file():
+            continue
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            continue
+
+
+def maintain_local_stores(root: Path) -> None:
+    """Prune each Mac ledger and rotate its logs."""
+    base = Path(root)
+    for folder in ("ml", "ops", "data"):
+        path = base / folder / "autopilot.sqlite"
+        if not path.is_file():
+            continue
+        database = DB(path)
+        database.conn.close()
+        rotate_logs(base / folder / "logs")
+    rotate_logs(base / "logs")
+
+
 def setup_logging(output_dir: Path, verbose: bool = False) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "logs").mkdir(exist_ok=True)
+    log_dir = output_dir / "logs"
+    log_dir.mkdir(exist_ok=True)
+    rotate_logs(log_dir)
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler(output_dir / "logs" / "autopilot.log"),
+            TimedRotatingFileHandler(
+                log_dir / "autopilot.log",
+                when="D",
+                backupCount=7,
+                encoding="utf-8",
+            ),
         ],
     )

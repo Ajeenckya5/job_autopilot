@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp } from "../src/index.js";
-import { eventName, syncPushPayload } from "../src/jobs.js";
+import { eventName, profileVectorInput, searchLimit, syncPushPayload } from "../src/jobs.js";
 import { memoryKv, openLocalD1 } from "../src/sqlite-d1.js";
 
 function env() {
@@ -49,6 +49,67 @@ test("deltas return only jobs changed after the cursor", async () => {
   assert.equal(page.json.jobs[0].title, "Machine Learning Engineer");
   const again = await call(app, db, "GET", `/v1/jobs?since=${page.json.cursor}`);
   assert.equal(again.json.jobs.length, 0);
+});
+
+test("search returns at most 300 recent jobs in the requested family", async () => {
+  const app = createApp();
+  const db = env();
+  const jobs = [];
+  for (let i = 0; i < 5; i += 1) {
+    jobs.push({
+      id: `gh-${i}`,
+      source: "greenhouse",
+      company: "Northwind",
+      title: i === 4 ? "Registered Nurse" : "Software Engineer",
+      url: `https://example.com/jobs/${i}`,
+      location_raw: "United States",
+      posted_at: i === 1 ? "2020-01-01T00:00:00Z" : "2026-09-20T00:00:00Z",
+      description_text: "Python",
+    });
+  }
+  const saved = await call(app, db, "POST", "/v1/jobs", { jobs }, { "x-ingest-token": "test-token" });
+  assert.equal(saved.status, 200);
+  const page = await call(app, db, "GET", "/v1/search?country=united-states&family=software&since=2026-09-01T00:00:00Z&limit=999");
+  assert.equal(page.status, 200);
+  assert.equal(page.json.jobs.length, 3);
+  assert.equal(page.json.jobs.every((job) => job.embedding.length === 384), true);
+  assert.equal(searchLimit(999), 300);
+  assert.equal(searchLimit(0), 1);
+});
+
+test("profile vector accepts skills and roles only", async () => {
+  const resume = "UNIQUE_RESUME_SENTINEL";
+  assert.equal(profileVectorInput({ skills: ["python"], roles: ["Software Engineer"], resume_text: resume }).error, "invalid");
+  const app = createApp();
+  const db = env();
+  const bad = await call(app, db, "POST", "/v1/profile-vector", { skills: ["python"], roles: ["Software Engineer"], resume_text: resume });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.text.includes(resume), false);
+  const good = await call(app, db, "POST", "/v1/profile-vector", { skills: ["python"], roles: ["Software Engineer"] });
+  assert.equal(good.status, 200);
+  assert.equal(good.json.vector.length, 384);
+  assert.equal(JSON.stringify(good.json).includes(resume), false);
+});
+
+test("a job description is available on demand without the vector", async () => {
+  const app = createApp();
+  const db = env();
+  await call(app, db, "POST", "/v1/jobs", {
+    jobs: [{
+      id: "gh-desc",
+      source: "greenhouse",
+      company: "Northwind",
+      title: "Software Engineer",
+      url: "https://example.com/jobs/desc",
+      location_raw: "United States",
+      posted_at: "2026-09-20T00:00:00Z",
+      description_text: "Must have python.\nBenefits\nWe offer paid time off.",
+    }],
+  }, { "x-ingest-token": "test-token" });
+  const job = await call(app, db, "GET", "/v1/job/gh-desc");
+  assert.equal(job.status, 200);
+  assert.equal(job.json.description_text.includes("Must have python."), true);
+  assert.equal(job.json.embedding, undefined);
 });
 
 test("event bodies cannot carry resume text", async () => {
