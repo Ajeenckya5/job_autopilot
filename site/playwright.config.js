@@ -13,7 +13,7 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   webServer: {
-    command: "pnpm exec vite --host 127.0.0.1 --port 4174 --strictPort",
+    command: "npx vite --host 127.0.0.1 --port 4174 --strictPort",
     port: 4174,
     reuseExistingServer: false,
   },
