@@ -68,3 +68,6 @@ site/public/feeds/
 
 # Test output
 site/test-results/
+
+# Worker local state
+worker/.wrangler/
