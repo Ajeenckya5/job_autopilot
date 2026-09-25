@@ -52,7 +52,7 @@ test("deltas return only jobs changed after the cursor", async () => {
   assert.equal(again.json.jobs.length, 0);
 });
 
-test("search returns at most 300 recent jobs in the requested family", async () => {
+test("search returns at most 300 recent jobs in any field", async () => {
   const app = createApp();
   const db = env();
   const jobs = [];
@@ -70,9 +70,11 @@ test("search returns at most 300 recent jobs in the requested family", async () 
   }
   const saved = await call(app, db, "POST", "/v1/jobs", { jobs }, { "x-ingest-token": "test-token" });
   assert.equal(saved.status, 200);
+  // An old site still sends a family; it no longer narrows anything.
   const page = await call(app, db, "GET", "/v1/search?country=united-states&family=software&since=2026-09-01T00:00:00Z&limit=999");
   assert.equal(page.status, 200);
-  assert.equal(page.json.jobs.length, 3);
+  assert.equal(page.json.jobs.length, 4);
+  assert.equal(page.json.jobs.some((job) => job.title === "Registered Nurse"), true);
   assert.equal(page.json.jobs.every((job) => job.embedding.length === 384), true);
   assert.equal(searchLimit(999), 300);
   assert.equal(searchLimit(0), 1);
@@ -229,4 +231,35 @@ test("a batch of jobs gets ordered cursors in one transaction and unchanged jobs
   assert.equal(cursors.get("gh-batch-0") < cursors.get("gh-batch-24"), true);
   assert.equal(page.json.jobs[0].country, "united-states");
   assert.equal(page.json.jobs[0].description_text, "SQL");
+});
+
+test("after titles, postings that use the resume's skill phrases come first, hyphens or not", async () => {
+  const app = createApp();
+  const db = env();
+  const base = { source: "greenhouse", company: "Harper LLP", location_raw: "Chicago, IL" };
+  await call(app, db, "POST", "/v1/jobs", {
+    jobs: [
+      { ...base, id: "a", title: "Office Coordinator", url: "https://example.com/a", posted_at: "2026-09-22T00:00:00Z", description_text: "Order supplies and greet visitors." },
+      { ...base, id: "b", title: "Litigation Support Specialist", url: "https://example.com/b", posted_at: "2026-09-10T00:00:00Z", description_text: "Draft pleadings and run e-Discovery reviews." },
+      { ...base, id: "c", title: "Case Clerk", url: "https://example.com/c", posted_at: "2026-09-15T00:00:00Z", description_text: "File pleadings with the court." },
+      { ...base, id: "d", title: "Paralegal", url: "https://example.com/d", posted_at: "2026-09-02T00:00:00Z", description_text: "Support attorneys." },
+    ],
+  }, { "x-ingest-token": "test-token" });
+  const page = await call(app, db, "GET", "/v1/search?country=united-states&since=2026-09-01T00:00:00Z&term=paralegal&skill=pleadings&skill=ediscovery");
+  assert.deepEqual(page.json.jobs.map((job) => job.id), ["d", "b", "c", "a"]);
+  assert.equal(page.json.title_matches, 1);
+});
+
+test("the search columns migration fills titles and descriptions for rows already stored", async () => {
+  const db = openLocalD1();
+  await db.prepare(
+    "INSERT INTO jobs (id, country, family, company, updated_at, posted_at, cursor, content_hash, payload) VALUES ('x', 'united-states', '', 'x', '', '', 1, 'h', ?)",
+  ).bind(JSON.stringify({ title: "E-Discovery Paralegal", description_text: "Run e-discovery in Relativity/Everlaw." })).run();
+  const sql = readFileSync(new URL("../migrations/0003_search_any_field.sql", import.meta.url), "utf8");
+  const update = sql.split(";").find((part) => part.includes("UPDATE jobs"));
+  await db.prepare(update.split("\n").filter((line) => !line.startsWith("--")).join("\n")).bind().run();
+  const row = await db.prepare("SELECT title_lc, text_lc FROM jobs WHERE id = 'x'").bind().first();
+  // Close enough until the next full feed rewrites the row through searchable().
+  assert.equal(row.title_lc, "e discovery paralegal");
+  assert.equal(row.text_lc, "run e discovery in relativity everlaw.");
 });
