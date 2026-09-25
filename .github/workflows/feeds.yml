@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "0 */6 * * *"
   workflow_dispatch:
+    inputs:
+      all:
+        description: "Send the whole feed to the jobs API, not only changes"
+        type: boolean
+        default: false
   pull_request:
 
 permissions:
@@ -39,6 +44,16 @@ jobs:
           USAJOBS_API_KEY: ${{ secrets.USAJOBS_API_KEY }}
           USAJOBS_EMAIL: ${{ secrets.USAJOBS_EMAIL }}
         run: pip install pyyaml && FEED_OUT="$GITHUB_WORKSPACE/feeds" python feed-builder/build_feeds.py
+      - name: Send new and changed jobs to the jobs API
+        # Before the commit, so the rebuilt feed can be compared with the last one. A failed send
+        # never blocks publishing the feed.
+        continue-on-error: true
+        timeout-minutes: 25
+        env:
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+        run: |
+          (cd feed-builder && python -m unittest -q test_push)
+          python feed-builder/push_to_api.py ${{ github.event.inputs.all == 'true' && '--all' || '' }}
       - name: Keep the schedule active
         run: date -u +%Y-%m-%dT%H:%M:%SZ
       - name: Publish the feed
