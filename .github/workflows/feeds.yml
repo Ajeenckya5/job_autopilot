@@ -48,7 +48,7 @@ jobs:
         # Before the commit, so the rebuilt feed can be compared with the last one. A failed send
         # never blocks publishing the feed.
         continue-on-error: true
-        timeout-minutes: 25
+        timeout-minutes: 45
         env:
           INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
         run: |
