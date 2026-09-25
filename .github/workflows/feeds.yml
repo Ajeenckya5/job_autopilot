@@ -22,6 +22,7 @@ jobs:
         run: |
           pip install pyyaml
           python feed-builder/test_coverage.py
+          (cd feed-builder && python -m unittest -q test_extract test_text)
           python feed-builder/build_feeds.py --check
           if [ -d feeds ]; then python feed-builder/build_feeds.py --audit-dir feeds; fi
 

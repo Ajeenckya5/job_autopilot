@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp } from "../src/index.js";
-import { eventName, profileVectorInput, searchLimit, syncPushPayload } from "../src/jobs.js";
+import { readFileSync } from "node:fs";
+import { countryOf, eventName, profileVectorInput, searchLimit, searchTerms, syncPushPayload } from "../src/jobs.js";
 import { memoryKv, openLocalD1 } from "../src/sqlite-d1.js";
 
 function env() {
@@ -130,3 +131,70 @@ test("event bodies cannot carry resume text", async () => {
   assert.equal(funnel.json.weeks[0].name, "search_run");
   assert.equal(JSON.stringify(funnel.json).includes(resume), false);
 });
+
+test("a US city with a state code is the United States", () => {
+  assert.equal(countryOf("San Francisco, CA"), "united-states");
+  assert.equal(countryOf("Los Angeles, CA (On-site)"), "united-states");
+  assert.equal(countryOf("Austin,TX"), "united-states");
+  assert.equal(countryOf("Toronto, ON"), "other");
+  assert.equal(countryOf("Vancouver, Canada"), "other");
+  assert.equal(countryOf("Remote"), "remote");
+  assert.equal(countryOf("", [{ country: "United States" }]), "united-states");
+  assert.equal(countryOf("Vancouver, CA", [{ country: "Canada" }]), "other");
+});
+
+test("the relabel migration moves US rows out of other and leaves the rest", async () => {
+  const db = openLocalD1();
+  const rows = [
+    ["a", "San Francisco, CA ", []],
+    ["b", "Toronto, ON", []],
+    ["c", "", [{ country: "United States" }]],
+    ["d", "Vancouver, CA", [{ country: "Canada" }]],
+    ["e", "Cambridge, MA; London, United Kingdom", []],
+  ];
+  for (const [id, location_raw, locations] of rows) {
+    await db.prepare(
+      "INSERT INTO jobs (id, country, family, company, updated_at, posted_at, cursor, content_hash, payload) VALUES (?, 'other', 'software', 'x', '', '', 1, 'h', ?)",
+    ).bind(id, JSON.stringify({ location_raw, locations })).run();
+  }
+  const sql = readFileSync(new URL("../migrations/0002_us_state_codes.sql", import.meta.url), "utf8");
+  await db.prepare(sql.split("\n").filter((line) => !line.startsWith("--")).join("\n")).bind().run();
+  const got = (await db.prepare("SELECT id, country FROM jobs ORDER BY id").bind().all()).results;
+  assert.deepEqual(got.map((row) => row.country), ["united-states", "other", "united-states", "other", "other"]);
+});
+
+test("search returns titles that fit the roles across the look-back before newer others", async () => {
+  const app = createApp();
+  const db = env();
+  const jobs = [];
+  for (let i = 0; i < 6; i += 1) {
+    jobs.push({
+      id: `gh-new-${i}`,
+      source: "greenhouse",
+      company: "Northwind",
+      title: "Product Designer",
+      url: `https://example.com/jobs/new-${i}`,
+      location_raw: "Seattle, WA",
+      posted_at: `2026-09-2${i % 4}T00:00:00Z`,
+      description_text: "&lt;p&gt;Figma &amp;amp; research&lt;/p&gt;",
+    });
+  }
+  jobs.push({
+    id: "gh-ml",
+    source: "greenhouse",
+    company: "Northwind",
+    title: "Senior Machine Learning Engineer",
+    url: "https://example.com/jobs/ml",
+    location_raw: "San Francisco, CA",
+    posted_at: "2026-09-05T00:00:00Z",
+    description_text: "<p>PyTorch</p>",
+  });
+  await call(app, db, "POST", "/v1/jobs", { jobs }, { "x-ingest-token": "test-token" });
+  const page = await call(app, db, "GET", "/v1/search?country=united-states&family=software&since=2026-09-01T00:00:00Z&limit=3&term=machine%20learning&term=ml");
+  assert.equal(page.json.jobs[0].id, "gh-ml");
+  assert.equal(page.json.jobs.length, 3);
+  assert.equal(page.json.title_matches, 1);
+  assert.equal(page.json.jobs[1].description_text, "Figma & research");
+  assert.deepEqual(searchTerms(["ML", "Machine  Learning", "100%_sure", "x".repeat(50)]), ["machine learning", "100 sure"]);
+});
+

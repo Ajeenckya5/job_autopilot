@@ -42,6 +42,7 @@ export function createApp() {
       families: url.searchParams.getAll("family"),
       since: url.searchParams.get("since") || "",
       limit: url.searchParams.get("limit") || "300",
+      terms: url.searchParams.getAll("term"),
     });
     return c.json(page);
   });
