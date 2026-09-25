@@ -50,12 +50,12 @@ describe("resume fixtures", () => {
     const bytes = pdfBytes("Ada Lovelace software engineer with Python and SQL experience", true);
     const got = await readResumeFile(fileFrom("cv.pdf", bytes, "application/pdf"), { pdfjs });
     expect(got.text.toLowerCase()).toContain("python");
-    expect(got.skills).toContain("python");
+    expect(got.skills).toContain("Python");
   });
   it("reads an uncompressed PDF the same way", async () => {
     const bytes = pdfBytes("Ada Lovelace software engineer with Python and SQL experience", false);
     const got = await readResumeFile(fileFrom("docs.pdf", bytes, "application/pdf"), { pdfjs });
-    expect(got.skills).toContain("sql");
+    expect(got.skills).toContain("SQL");
   });
   it("rejects a scanned PDF with no text", async () => {
     const bytes = pdfBytes("", true);

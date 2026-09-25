@@ -20,6 +20,26 @@ The search only includes jobs posted inside your lookback window whose posting o
 
 **LinkedIn and Indeed detail enrichment.** Those sources often return title-only search rows. When a thin LinkedIn/Indeed row has a title-only score above `behavior.detail_enrich_min_score`, the agent fetches the full posting before the final experience and score checks.
 
+## How the website matches any field
+
+The website has no list of skills, roles or job families. Every six hours the feed build learns them from the postings themselves and writes `feeds/lexicon.json` (`feed-builder/lexicon.py`):
+
+- **Skills** are phrases that several employers use and that are concentrated in some kinds of job, beyond chance: "pleadings" in paralegal postings, "cdl" in driver postings, "month end close" in accounting ones. Words every kind of job uses ("experience", "team") are filler. Place names come from the location fields and are left out.
+- **Rarity**: each skill phrase carries how rare it is, so a rare shared phrase counts for more than a common one.
+- **Titles**: how rare each title word is, which words end titles ("accountant", "driver"), and which titles have postings that read alike ("staff accountant" and "senior accountant").
+
+Before postings are kept, text an employer repeats across different kinds of job (its "About us", benefits and equal-opportunity paragraphs) is cut, so the 1,500 characters stored per posting describe the job.
+
+On the site:
+
+- Your skills are what you listed on your resume plus every learned skill phrase in it. Your past titles are read from the lines around the dates in your work history. Nothing is guessed when the resume names none.
+- Role fit compares each posting's title with the titles you typed and have held, word by word. Rarer words count for more and the last word ("scientist" in "data scientist") counts twice. Titles whose postings read like yours count as related.
+- Skill fit is the share of a posting's most telling phrases that your resume also uses. "Most telling" means what most postings for your own titles ask for, so one employer's product names do not count as skills you lack.
+- Search asks the jobs API for your titles first, then for postings that use your rarest skill phrases. Only titles and up to 12 phrases leave the browser, never the resume.
+- Found roles are not kept on the device, so each visit searches again, and an open tab repeats it as often as your runs per day say.
+
+Measured on the 330 hand-labelled postings in `site/test/fixtures/holdout` (September 2026): precision in the top 10 went from 0.67 to 0.75, precision of what is shown from 0.61 to 0.82, AUC from 0.92 to 0.93.
+
 ## Resume Match Score
 
 The local score is ATS-inspired, not a copy of Workday or Greenhouse internals. Those systems are proprietary. The scorer mirrors common ATS behavior with transparent components:

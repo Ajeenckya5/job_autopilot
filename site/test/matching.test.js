@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
 import { rankAll } from "../src/logic/jobs.js";
-import { familyChips, noteFeedback, resetFeedback, TAXONOMY_ATTRIBUTION } from "../src/logic/match.js";
+import { familyChips, noteFeedback, resetFeedback } from "../src/logic/match.js";
 
 const data = JSON.parse(readFileSync(new URL("./fixtures/matching/personas.json", import.meta.url)));
 const now = Date.parse("2026-09-23T12:00:00Z");
@@ -43,14 +43,19 @@ function evaluate(persona) {
 }
 
 describe("role family matching", () => {
-  it("attributes O*NET and keeps the machine learning example", () => {
-    expect(TAXONOMY_ATTRIBUTION).toMatch(/CC BY 4.0/);
-    expect(TAXONOMY_ATTRIBUTION).toMatch(/onetcenter\.org/);
+  it("learns related titles from postings, with no role list", () => {
     const chips = familyChips({
       roles: ["Machine Learning Engineer"],
       resume_text: "Analytics Engineer\n2018 - 2026\npython pytorch",
-    }).map((chip) => chip.label);
-    expect(chips).toEqual(expect.arrayContaining(["AI Engineer", "Applied Scientist", "MLOps Engineer"]));
+    });
+    const labels = chips.map((chip) => chip.label);
+    expect(labels).toEqual(expect.arrayContaining(["ML Engineer", "Data Engineer"]));
+    chips.forEach((chip) => {
+      expect(chip.kind).toBe("related");
+      expect(chip.weight).toBeGreaterThan(0);
+      expect(chip.weight).toBeLessThanOrEqual(0.85);
+    });
+    expect(familyChips({ roles: ["Sommelier"] })).toEqual([]);
   });
 
   it("meets precision, NDCG, recall, and score separation on 60 personas", () => {
@@ -64,14 +69,16 @@ describe("role family matching", () => {
     expect(mean("gap")).toBeGreaterThanOrEqual(30);
   });
 
-  it("ranks the automotive ML persona into ML, applied science, and data science", () => {
+  it("ranks the automotive ML persona into ML, data science and the data work on the resume", () => {
     const persona = data.personas.find((row) => row.id === "ml-automotive");
     const { ranked } = evaluate(persona);
     const top = ranked.slice(0, 10).map((job) => job.title);
     expect(top.some((title) => /devops|sales/i.test(title))).toBe(false);
+    // The resume also lists Analytics Engineer, whose postings read like data engineering ones.
     top.forEach((title) => {
-      expect(title).toMatch(/machine learning|ml engineer|\bmle\b|ai engineer|applied scientist|data scientist|research scientist|ml scientist/i);
+      expect(title).toMatch(/machine learning|ml engineer|\bmle\b|ai engineer|scientist|data engineer|data platform/i);
     });
+    expect(top.filter((title) => /machine learning|ml engineer|data scientist/i.test(title)).length).toBeGreaterThanOrEqual(7);
     const card = ranked[0];
     expect(card.tier).toBe("strong");
     expect(card.relation).toBe("Your target");
@@ -93,8 +100,9 @@ describe("role family matching", () => {
     const persona = data.personas.find((row) => row.id === "ml-automotive");
     const profile = profileOf(persona);
     const before = rankAll(persona.jobs, profile, now);
-    const hidden = rankAll(persona.jobs, { ...profile, hidden_roles: ["applied-scientist"] }, now);
-    const applied = before.find((job) => job.title === "Applied Scientist");
+    const chip = familyChips(profile).find((row) => row.id === "data engineer");
+    const hidden = rankAll(persona.jobs, { ...profile, hidden_roles: [chip.id] }, now);
+    const applied = before.find((job) => job.title === "Data Engineer");
     const after = hidden.find((job) => job.id === applied.id);
     expect(after.match_score).toBeLessThan(applied.match_score);
     const tuned = noteFeedback(profile, before[0], 1);
@@ -125,7 +133,7 @@ describe("role family matching", () => {
     expect(globalThis.performance.now() - start).toBeLessThan(1500);
     expect(ranked).toHaveLength(25000);
     const again = globalThis.performance.now();
-    rankAll(jobs, { ...profile, hidden_roles: ["mlops-engineer", "applied-scientist"] }, now);
+    rankAll(jobs, { ...profile, hidden_roles: familyChips(profile).map((chip) => chip.id) }, now);
     expect(globalThis.performance.now() - again).toBeLessThan(300);
   });
 });

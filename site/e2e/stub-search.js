@@ -35,7 +35,7 @@ export function sampleJobs() {
       family: "general",
       posted_at: posted,
       url: "https://example.com/jobs/as",
-      description_text: "experiments",
+      description_text: "Design experiments and ranking models in Python and PyTorch.",
       embedding: Array(384).fill(0.01),
     },
     {

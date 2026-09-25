@@ -1,5 +1,6 @@
-import { rolesMentioned, yearsFromResume } from "./match.js";
-import { skillsFromText } from "./resume.js";
+import { hasLexicon } from "./lexicon.js";
+import { yearsFromResume } from "./match.js";
+import { skillsFromText, titlesFromResume } from "./resume.js";
 
 export const PROFILE_LIMIT = 10 * 1024;
 export const RESUME_TEXT_LIMIT = 20 * 1024;
@@ -7,7 +8,7 @@ export const RESUME_TEXT_LIMIT = 20 * 1024;
 export function profileFromResume(text) {
   return {
     skills: skillsFromText(text, 24),
-    titles: rolesMentioned(text).slice(0, 12),
+    titles: titlesFromResume(text, undefined, 12),
     years: yearsFromResume(text),
   };
 }
@@ -41,14 +42,22 @@ export function compactProfile(data) {
   return next;
 }
 
+/**
+ * Fill skills, titles and years from the resume when they are missing. Profiles saved before skills
+ * were learned from postings get the learned ones added once, next to the ones already chosen.
+ */
 export function absorbResume(data) {
   const source = data || {};
   if (!source.resume_text) return compactProfile(source);
   const parsed = profileFromResume(source.resume_text);
-  return compactProfile({
+  const upgrade = hasLexicon() && source.skills_from !== "postings";
+  const merge = (mine, found) => [...new Set([...(mine || []), ...(found || [])])];
+  const next = {
     ...source,
-    skills: source.skills && source.skills.length ? source.skills : parsed.skills,
-    titles: source.titles && source.titles.length ? source.titles : parsed.titles,
+    skills: upgrade ? merge(source.skills, parsed.skills) : (source.skills && source.skills.length ? source.skills : parsed.skills),
+    titles: upgrade ? merge(parsed.titles, source.titles) : (source.titles && source.titles.length ? source.titles : parsed.titles),
     years: source.years == null || source.years === "" ? parsed.years : source.years,
-  });
+  };
+  if (hasLexicon()) next.skills_from = "postings";
+  return compactProfile(next);
 }

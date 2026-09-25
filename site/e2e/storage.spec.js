@@ -8,7 +8,8 @@ const BUDGET = 5 * 1024 * 1024;
 test("a full session stays under 5 MB of browser storage", async ({ page }) => {
   const shards = [];
   page.on("request", (request) => {
-    if (request.url().includes("/feeds/")) shards.push(request.url());
+    // The learned vocabulary ships with the site; job shards must never be downloaded.
+    if (request.url().includes("/feeds/") && !request.url().includes("lexicon")) shards.push(request.url());
   });
   await stubSearch(page);
   await page.goto("./");
