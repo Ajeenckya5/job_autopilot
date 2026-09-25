@@ -49,3 +49,6 @@ jobs:
         run: npm install
       - name: API tests
         run: npm test
+      - name: Migrations apply on a local D1
+        # D1 has limits plain SQLite does not, such as an expression depth of 100.
+        run: npx --yes wrangler@4.138.0 d1 migrations apply jobs --local
