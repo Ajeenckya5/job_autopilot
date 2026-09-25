@@ -15,6 +15,7 @@ const JOB_UNITS = new WeakMap();
 const SKILLS = new WeakMap();
 const KEY_PHRASES = 12;
 const PROFILE_MIN = 6;
+const RELATE_MIN = 4;
 
 export function yearsFromResume(text, now = Date.now()) {
   const year = new Date(now).getUTCFullYear();
@@ -387,6 +388,51 @@ function roleFit(job, prepared) {
   return best;
 }
 
+/**
+ * Titles related to the person's through this search's own postings: when several postings with
+ * one title ("manufacturing engineer") ask for about as much of the resume as postings with the
+ * person's titles do, that title is related, for this person, whatever the field. It helps where
+ * the lexicon has too few postings to relate titles (an industrial engineer and manufacturing roles).
+ */
+function relateBySkills(rows) {
+  const own = rows.filter((row) => row.role.weight >= 0.85 && (row.role.kind === "target" || row.role.kind === "resume"));
+  const shares = own.map((row) => row.skills.share).sort((a, b) => a - b);
+  // Needs enough postings with the person's own titles to know what they ask of this resume.
+  if (shares.length < RELATE_MIN) return;
+  const typical = shares[Math.floor(shares.length / 2)];
+  if (typical < 0.2) return;
+  const groups = new Map();
+  const terms = new Map();
+  const termOf = (title) => {
+    if (!terms.has(title)) {
+      const core = titleCore(title);
+      terms.set(title, core.length && isTitlePhrase(core[core.length - 1]) ? core.slice(-2).join(" ") : "");
+    }
+    return terms.get(title);
+  };
+  rows.forEach((row) => {
+    if (row.role.weight >= 0.85) return;
+    const term = termOf(String(row.job.title || ""));
+    if (!term) return;
+    const group = groups.get(term) || { total: 0, companies: new Set(), rows: [] };
+    group.total += row.skills.share;
+    group.companies.add(String(row.job.company || "").toLowerCase());
+    group.rows.push(row);
+    groups.set(term, group);
+  });
+  groups.forEach((group, term) => {
+    if (group.rows.length < 2 || group.companies.size < 2) return;
+    const closeness = group.total / group.rows.length / typical;
+    if (closeness < 0.7) return;
+    const weight = Math.min(0.7, 0.35 + 0.35 * Math.min(1, closeness));
+    group.rows.forEach((row) => {
+      if (weight <= row.role.weight) return;
+      row.role = { weight, kind: "related", title: term, id: term, phrase: term };
+      row.role.relation = relationLabel(row.role);
+    });
+  });
+}
+
 function experienceFit(have, required) {
   if (required == null || required === "") return 0.8;
   const gap = have - Number(required);
@@ -476,6 +522,7 @@ export function scoreAll(jobs, profile, now = Date.now()) {
     row.skills = skillFit(row.job, prepared, shared);
     SKILLS.set(row.job, { key, skills: row.skills });
   });
+  relateBySkills(rows);
   const external = Array.isArray(profile && profile.vector) && profile.vector.length === 384;
   const similarity = rows.map((row) => {
     if (!prepared.vector) return 0.5;

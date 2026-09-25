@@ -1,14 +1,17 @@
 import { apiBase } from "./sync.js";
-import { fold, phraseIdf, phrasesIn, titleCore, titleIdf, titleWords } from "./lexicon.js";
+import { fold, isTitlePhrase, phraseIdf, titleCore, titleIdf } from "./lexicon.js";
+import { resumePhrases, skillsFromText } from "./resume.js";
 import { familyMap } from "./match.js";
 import { clampLookback, htmlToText } from "./text.js";
 
 export const JOBS_API = "https://jobs-api.ajeenckyam8.workers.dev";
 export const SEARCH_LIMIT = 300;
 
-/** Text as the API stores it for search: folded like the lexicon, one space between words. */
+/** Text as the API stores it for search: folded like the lexicon, one space between words, a
+ *  full stop kept only inside a word ("node.js"). The API matches whole words, so "lean" does not
+ *  find "clean" and short titles such as "rn" are safe to send. */
 export function searchable(text) {
-  return fold(text).replace(/[^a-z0-9+#.& ]+/g, " ").replace(/\s+/g, " ").trim();
+  return fold(text).replace(/\.(?![a-z0-9])/g, " ").replace(/[^a-z0-9+#.& ]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
 export function countriesFor(locations) {
@@ -36,7 +39,7 @@ export function searchTermsFor(profile, max = 16) {
   const terms = [];
   const add = (value) => {
     const term = searchable(value);
-    if (term.length >= 4 && term.length <= 40 && !terms.includes(term)) terms.push(term);
+    if (term.length >= 2 && term.length <= 40 && !terms.includes(term)) terms.push(term);
   };
   const entries = [...familyMap(profile || {}).values()];
   const order = { target: 0, resume: 1, related: 2 };
@@ -53,24 +56,28 @@ export function searchTermsFor(profile, max = 16) {
 }
 
 /**
- * The resume's rarest skill phrases, which the API uses to put postings that ask for them ahead of
- * the rest once titles run out. Only phrases, never the resume text, leave the device.
+ * The resume's rarest skills, as the person wrote them or as postings spell them, which the API
+ * uses to put postings that ask for them ahead of the rest once titles run out. Job titles and
+ * repeats inside longer skills are left out. Only these phrases, never the resume, leave the device.
  */
 export function skillTermsFor(profile, max = 12) {
   const source = profile || {};
-  const seen = new Set();
+  const listed = [...(source.skills || []), ...skillsFromText(source.resume_text || "", 40)];
   const rows = [];
-  const push = (phrase, idf) => {
-    if (phrase.length < 4 || phrase.length > 40 || seen.has(phrase)) return;
+  const seen = new Set();
+  const push = (value, rank) => {
+    const phrase = searchable(value);
+    if (phrase.length < 2 || phrase.length > 40 || seen.has(phrase) || isTitlePhrase(phrase)) return;
     seen.add(phrase);
-    rows.push({ phrase, idf });
+    rows.push({ phrase, rank, idf: phraseIdf(phrase) || 5 });
   };
-  phrasesIn(source.resume_text || "").forEach((row) => push(row.phrase, row.idf));
-  (source.skills || []).forEach((skill) => {
-    const phrase = titleWords(skill).join(" ");
-    if (phrase) push(phrase, phraseIdf(phrase) || 3);
-  });
-  return rows.sort((a, b) => b.idf - a.idf).slice(0, max).map((row) => row.phrase);
+  // What the person lists comes first; phrases from the rest of the resume fill the remainder.
+  listed.forEach((skill) => push(skill, 0));
+  resumePhrases(source.resume_text || "").forEach((row) => push(row.phrase, 1));
+  // "six sigma" finds every posting "six sigma green belt" would, so the shorter one is kept.
+  const kept = rows.filter((row) => !rows.some((other) => other !== row
+    && other.phrase.length < row.phrase.length && ` ${row.phrase} `.includes(` ${other.phrase} `)));
+  return kept.sort((a, b) => a.rank - b.rank || b.idf - a.idf).slice(0, max).map((row) => row.phrase);
 }
 
 export function searchQuery(profile, now = Date.now()) {

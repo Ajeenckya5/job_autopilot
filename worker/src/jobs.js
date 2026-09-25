@@ -214,10 +214,10 @@ export function embedProfile({ skills, roles }) {
   return embed(`${(skills || []).join(" ")} ${(roles || []).join(" ")}`);
 }
 
-/** Title phrases for search. Under 4 letters ("ml", "rn") would match inside words, so the site ranks those. */
+/** Phrases for search, folded like stored text. Matching is by whole words, so "rn" is safe. */
 export function searchTerms(values, max = 16) {
   const clean = (values || []).map((value) => searchable(value));
-  return [...new Set(clean.filter((term) => term.length >= 4 && term.length <= 40))].slice(0, max);
+  return [...new Set(clean.filter((term) => term.length >= 2 && term.length <= 40))].slice(0, max);
 }
 
 /**
@@ -233,15 +233,16 @@ export async function searchJobs(db, { countries, since, limit, terms, skills } 
   const sinceIso = String(since || "").slice(0, 40) || new Date(Date.now() - 14 * 86400000).toISOString();
   const termList = searchTerms(terms);
   const skillList = searchTerms(skills, 12);
-  const titleHit = termList.length ? termList.map(() => "title_lc LIKE ?").join(" OR ") : "0";
-  const skillHits = skillList.length ? skillList.map(() => "(text_lc LIKE ?)").join(" + ") : "0";
+  // Padded with spaces so a phrase matches whole words only: "lean" is not "clean".
+  const titleHit = termList.length ? termList.map(() => "(' ' || title_lc || ' ') LIKE ?").join(" OR ") : "0";
+  const skillHits = skillList.length ? skillList.map(() => "((' ' || text_lc || ' ') LIKE ?)").join(" + ") : "0";
   const ranked = await db.prepare(
     `SELECT id, (${titleHit}) AS title_hit, (${skillHits}) AS skill_hits FROM jobs
      WHERE posted_at >= ? AND country IN (${countryList.map(() => "?").join(",")})
      ORDER BY title_hit DESC, skill_hits DESC, posted_at DESC LIMIT ?`,
   ).bind(
-    ...termList.map((term) => `%${term}%`),
-    ...skillList.map((skill) => `%${skill}%`),
+    ...termList.map((term) => `% ${term} %`),
+    ...skillList.map((skill) => `% ${skill} %`),
     sinceIso,
     ...countryList,
     cap,

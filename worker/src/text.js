@@ -10,6 +10,7 @@ export function searchable(text) {
     .toLowerCase()
     .replace(/\b([a-z0-9])-(?=[a-z0-9])/g, "$1")
     .replace(/[/\-_'’]/g, " ")
+    .replace(/\.(?![a-z0-9])/g, " ")
     .replace(/[^a-z0-9+#.& ]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();

@@ -78,7 +78,9 @@ describe("role family matching", () => {
     top.forEach((title) => {
       expect(title).toMatch(/machine learning|ml engineer|\bmle\b|ai engineer|scientist|data engineer|data platform/i);
     });
-    expect(top.filter((title) => /machine learning|ml engineer|data scientist/i.test(title)).length).toBeGreaterThanOrEqual(7);
+    // Scientist titles whose postings ask for as much of this resume come right after the targets.
+    expect(ranked.slice(0, 10).every((job) => job.label === "strong" || job.label === "good")).toBe(true);
+    expect(top.filter((title) => /machine learning|ml engineer|data scientist/i.test(title)).length).toBeGreaterThanOrEqual(6);
     const card = ranked[0];
     expect(card.tier).toBe("strong");
     expect(card.relation).toBe("Your target");
@@ -136,4 +138,29 @@ describe("role family matching", () => {
     rankAll(jobs, { ...profile, hidden_roles: familyChips(profile).map((chip) => chip.id) }, now);
     expect(globalThis.performance.now() - again).toBeLessThan(300);
   });
+
+  it("relates titles through the search's own postings when the lexicon knows too few", () => {
+    const job = (id, title, company, text) => ({
+      id, title, company, location_raw: "United States", posted_at: "2026-09-20T00:00:00Z", url: `https://example.com/${id}`, description_text: text,
+    });
+    const shop = "Run time studies, line balancing and kaizen events; value stream mapping and 5S on assembly lines.";
+    const jobs = [
+      ...["A", "B", "C", "D"].map((c, i) => job(`ie${i}`, "Industrial Engineer", `Plant ${c}`, shop)),
+      ...["E", "F", "G"].map((c, i) => job(`me${i}`, "Manufacturing Engineer", `Works ${c}`, `Improve throughput with line balancing, kaizen events and 5S. ${shop}`)),
+      ...["H", "I", "J"].map((c, i) => job(`se${i}`, "Software Engineer", `Apps ${c}`, "Build React and TypeScript front ends with GraphQL.")),
+    ];
+    const profile = {
+      roles: ["Industrial Engineer"],
+      resume_text: "Industrial Engineer\n2022 - 2026\n- Led time studies, line balancing and kaizen events\n- Value stream mapping and 5S on assembly lines",
+      lookback_days: 30,
+    };
+    const ranked = rankAll(jobs, profile, now);
+    const made = ranked.find((row) => row.title === "Manufacturing Engineer");
+    const soft = ranked.find((row) => row.title === "Software Engineer");
+    expect(made.relation).toBe("Related: Manufacturing Engineer");
+    expect(made.bucket).toBe("match");
+    expect(made.match_score).toBeGreaterThan(soft.match_score + 20);
+    expect(ranked[0].relation).toBe("Your target");
+  });
 });
+

@@ -101,22 +101,32 @@ export function skillsFromText(text, limit = 24, lexicon = getLexicon()) {
     const clean = String(label || "").replace(/\s+/g, " ").trim();
     const key = segments(clean).flat().join(" ");
     if (!clean || !key || seen.has(key)) return;
-    // "Lesson" adds nothing next to "lesson planning".
+    // "Lesson" adds nothing next to "lesson planning", nor "sigma green belt" next to "six sigma green belt".
     if (!key.includes(" ") && words.has(key)) return;
+    if (key.includes(" ") && [...seen].some((have) => ` ${have} `.includes(` ${key} `))) return;
     seen.add(key);
     key.split(" ").forEach((word) => words.add(word));
     out.push(clean);
   };
-  const lines = resumeLines(source);
-  const name = nameWords(source);
-  listedItems(lines).forEach(add);
+  listedItems(resumeLines(source)).forEach(add);
   const weight = (row) => row.idf * (row.phrase.includes(" ") ? 1.5 : 1) * (1 + Math.log(row.count));
-  phrasesIn(lines.length > 1 ? bodyText(lines) : source, lexicon)
-    .filter((row) => !isTitlePhrase(row.phrase, lexicon) && !row.phrase.split(" ").some((word) => name.has(word)))
+  resumePhrases(source, lexicon)
     .filter((row) => row.phrase.includes(" ") || row.count >= 2 || namedLikeATool(displayForm(row.phrase, source), source))
     .sort((a, b) => weight(b) - weight(a) || a.first - b.first)
     .forEach((row) => add(displayForm(row.phrase, source)));
   return limit == null ? out : out.slice(0, limit);
+}
+
+/**
+ * Every skill phrase in the parts of a resume that describe work: not the name at the top, not
+ * lines that only name an employer or a place, and not job titles.
+ */
+export function resumePhrases(text, lexicon = getLexicon()) {
+  const source = String(text || "");
+  const lines = resumeLines(source);
+  const name = nameWords(source);
+  return phrasesIn(lines.length > 1 ? bodyText(lines) : source, lexicon)
+    .filter((row) => !isTitlePhrase(row.phrase, lexicon) && !row.phrase.split(" ").some((word) => name.has(word)));
 }
 
 /**
@@ -127,7 +137,7 @@ function namedLikeATool(label, text) {
   if (/^[A-Z0-9+#&.]{2,}$/.test(label) || /[a-z][A-Z]/.test(label)) return true;
   if (!/^[A-Z]/.test(label)) return false;
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`[a-z0-9,;&/] +${escaped}(?![A-Za-z0-9])`).test(text);
+  return new RegExp(`[a-z0-9&/] +${escaped}(?![A-Za-z0-9])`).test(text);
 }
 
 export function allSkillsIn(text, lexicon = getLexicon()) {

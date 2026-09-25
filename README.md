@@ -33,9 +33,9 @@ Before postings are kept, text an employer repeats across different kinds of job
 On the site:
 
 - Your skills are what you listed on your resume plus every learned skill phrase in it. Your past titles are read from the lines around the dates in your work history. Nothing is guessed when the resume names none.
-- Role fit compares each posting's title with the titles you typed and have held, word by word. Rarer words count for more and the last word ("scientist" in "data scientist") counts twice. Titles whose postings read like yours count as related.
+- Role fit compares each posting's title with the titles you typed and have held, word by word. Rarer words count for more and the last word ("scientist" in "data scientist") counts twice. Titles whose postings read like yours count as related, from the lexicon or, where it knows too few postings, from the search itself: when several postings with one title ask for about as much of your resume as postings with your own titles do (manufacturing and quality engineer roles for an industrial engineer), that title is related for you.
 - Skill fit is the share of a posting's most telling phrases that your resume also uses. "Most telling" means what most postings for your own titles ask for, so one employer's product names do not count as skills you lack.
-- Search asks the jobs API for your titles first, then for postings that use your rarest skill phrases. Only titles and up to 12 phrases leave the browser, never the resume.
+- Search asks the jobs API for your titles first, then for postings that use your skills, the ones you list first. It matches whole words, so "lean" does not find "clean". Only titles and up to 12 phrases leave the browser, never the resume.
 - Found roles are not kept on the device, so each visit searches again, and an open tab repeats it as often as your runs per day say.
 
 Measured on the 330 hand-labelled postings in `site/test/fixtures/holdout` (September 2026): precision in the top 10 went from 0.67 to 0.75, precision of what is shown from 0.61 to 0.82, AUC from 0.92 to 0.93.

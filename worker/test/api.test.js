@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp } from "../src/index.js";
 import { readFileSync } from "node:fs";
-import { countryOf, eventName, profileVectorInput, searchLimit, searchTerms, syncPushPayload } from "../src/jobs.js";
+import { countryOf, eventName, profileVectorInput, searchJobs, searchLimit, searchTerms, syncPushPayload } from "../src/jobs.js";
 import { memoryKv, openLocalD1 } from "../src/sqlite-d1.js";
 
 function env() {
@@ -197,7 +197,8 @@ test("search returns titles that fit the roles across the look-back before newer
   assert.equal(page.json.jobs.length, 3);
   assert.equal(page.json.title_matches, 1);
   assert.equal(page.json.jobs[1].description_text, "Figma & research");
-  assert.deepEqual(searchTerms(["ML", "Machine  Learning", "100%_sure", "x".repeat(50)]), ["machine learning", "100 sure"]);
+  // Whole-word matching makes two-letter titles safe to search.
+  assert.deepEqual(searchTerms(["ML", "Machine  Learning", "100%_sure", "x".repeat(50)]), ["ml", "machine learning", "100 sure"]);
 });
 
 
@@ -256,10 +257,30 @@ test("the search columns migration fills titles and descriptions for rows alread
     "INSERT INTO jobs (id, country, family, company, updated_at, posted_at, cursor, content_hash, payload) VALUES ('x', 'united-states', '', 'x', '', '', 1, 'h', ?)",
   ).bind(JSON.stringify({ title: "E-Discovery Paralegal", description_text: "Run e-discovery in Relativity/Everlaw." })).run();
   const sql = readFileSync(new URL("../migrations/0003_search_any_field.sql", import.meta.url), "utf8");
-  const update = sql.split(";").find((part) => part.includes("UPDATE jobs"));
-  await db.prepare(update.split("\n").filter((line) => !line.startsWith("--")).join("\n")).bind().run();
+  const update = sql.slice(sql.indexOf("UPDATE jobs"), sql.indexOf("CREATE INDEX"));
+  await db.prepare(update.trim().replace(/;$/, "")).bind().run();
   const row = await db.prepare("SELECT title_lc, text_lc FROM jobs WHERE id = 'x'").bind().first();
   // Close enough until the next full feed rewrites the row through searchable().
   assert.equal(row.title_lc, "e discovery paralegal");
   assert.equal(row.text_lc, "run e discovery in relativity everlaw.");
+  const page = await searchJobs(db, { countries: ["united-states"], since: "", skills: ["relativity"], terms: [] });
+  assert.equal(page.jobs.length, 0, "rows without a posting date stay out of the look-back");
+});
+
+test("search matches whole words, so a short skill does not find longer words", async () => {
+  const app = createApp();
+  const db = env();
+  const base = { source: "greenhouse", company: "Plant Co", location_raw: "Columbus, OH", posted_at: "2026-09-20T00:00:00Z" };
+  await call(app, db, "POST", "/v1/jobs", {
+    jobs: [
+      { ...base, id: "clean", title: "Cleanroom Technician", url: "https://example.com/clean", description_text: "Keep the cleanroom clean." },
+      { ...base, id: "lean", title: "Process Engineer", url: "https://example.com/lean", description_text: "Run Lean, 5S and kaizen." },
+      { ...base, id: "rn", title: "ICU Nurse (RN)", url: "https://example.com/rn", description_text: "Critical care." },
+    ],
+  }, { "x-ingest-token": "test-token" });
+  const lean = await call(app, db, "GET", "/v1/search?country=united-states&since=2026-09-01T00:00:00Z&skill=lean&limit=1");
+  assert.equal(lean.json.jobs[0].id, "lean");
+  const nurse = await call(app, db, "GET", "/v1/search?country=united-states&since=2026-09-01T00:00:00Z&term=rn&limit=1");
+  assert.equal(nurse.json.jobs[0].id, "rn");
+  assert.equal(nurse.json.title_matches, 1);
 });
