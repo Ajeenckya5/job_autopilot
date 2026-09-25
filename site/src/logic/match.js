@@ -39,7 +39,7 @@ export function yearsFromResume(text, now = Date.now()) {
 
 export function seniorityOf(text) {
   const blob = String(text || "").toLowerCase();
-  if (/\bintern(ship)?\b/.test(blob)) return "intern";
+  if (/\b(intern(ship)?|co-?op|student|new grad)\b/.test(blob)) return "intern";
   if (/\b(junior|jr)\b/.test(blob)) return "junior";
   if (/\b(staff|principal)\b/.test(blob)) return "staff";
   if (/\b(senior|sr)\b/.test(blob)) return "senior";
@@ -324,6 +324,24 @@ function experienceFit(have, required) {
   return Math.max(0, 1 - beyond * 0.2);
 }
 
+/**
+ * An intern posting for someone four years in, or a staff title for someone two years in, is a
+ * stretch the title already tells us about. 1 means the level fits. "Manager" and "Lead" are left
+ * out: in "Product Manager" or "Retail Partner Lead" they name the job, not a level.
+ */
+export function seniorityFit(title, years) {
+  const level = seniorityOf(title);
+  const have = Number(years) || 0;
+  if (!have) return 1; // no dates on the resume: the level is unknown, so it cannot count against a job
+  if (level === "intern") return have >= 2 ? 0.25 : 1;
+  if (level === "junior") return have > 5 ? 0.7 : 1;
+  if (level === "staff") return have >= 7 ? 1 : have >= 5 ? 0.75 : 0.55;
+  if (level === "director") return have >= 10 ? 1 : 0.35;
+  return 1;
+}
+
+const LEVEL_WORDS = { intern: "Intern or student role", junior: "Junior role", staff: "Staff or principal level", director: "Director level" };
+
 function relationLabel(match) {
   if (!match || match.weight <= 0) return "";
   if (match.kind === "target" || match.kind === "synonym") return "Your target";
@@ -386,7 +404,8 @@ export function scoreAll(jobs, profile, now = Date.now()) {
     const years = row.job.years_required == null ? null : Number(row.job.years_required);
     const exp = experienceFit(prepared.years, years);
     const fresh = freshness(row.job.posted_at, prepared.days, now);
-    const raw = 100 * (0.35 * row.role.weight + 0.35 * row.skills.fit + 0.15 * exp + 0.1 * similarity[index] + 0.05 * fresh);
+    const level = seniorityFit(row.job.title, prepared.years);
+    const raw = 100 * (0.35 * row.role.weight + 0.35 * row.skills.fit + 0.15 * exp + 0.1 * similarity[index] + 0.05 * fresh) * Math.sqrt(level);
     const score = Math.round(Math.max(0, Math.min(100, raw)));
     const tier = candidate ? tierOf(score) : "hide";
     return {
@@ -398,7 +417,8 @@ export function scoreAll(jobs, profile, now = Date.now()) {
       role_id: row.role.id || row.job.role_id || "",
       why_matched: row.skills.matched,
       why_missing: row.skills.missing,
-      experience_line: experienceLine(years, prepared.years),
+      experience_line: experienceLine(years, prepared.years)
+        || (level < 1 ? `${LEVEL_WORDS[seniorityOf(row.job.title)]}, you have ${Math.round(prepared.years)} years` : ""),
       semantic: similarity[index],
     };
   });

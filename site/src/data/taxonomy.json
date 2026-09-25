@@ -1,5 +1,5 @@
 {
-  "attribution": "Occupation titles, alternate titles, and related-occupation links are adapted from the O*NET 29.0 Database by the U.S. Department of Labor, Employment and Training Administration, licensed CC BY 4.0 (https://www.onetcenter.org/database.html). Software roles add a hand-tuned layer on top of those titles.",
+  "attribution": "Occupation titles, alternate titles, and related-occupation links are adapted from the O*NET 29.0 Database by the U.S. Department of Labor, Employment and Training Administration, licensed CC BY 4.0 (https://www.onetcenter.org/database.html). Software and operations roles add a hand-tuned layer on top of those titles.",
   "roles": [
     {
       "id": "machine-learning-engineer",
@@ -522,7 +522,8 @@
       "layer": "onet",
       "synonyms": ["Logistics Specialist"],
       "adjacent": [
-        { "id": "truck-driver", "weight": 0.65 }
+        { "id": "truck-driver", "weight": 0.65 },
+        { "id": "supply-chain-analyst", "weight": 0.7 }
       ]
     },
     {
@@ -579,7 +580,8 @@
       "layer": "onet",
       "synonyms": ["Mechanical Designer"],
       "adjacent": [
-        { "id": "automotive-technician", "weight": 0.65 }
+        { "id": "automotive-technician", "weight": 0.65 },
+        { "id": "manufacturing-engineer", "weight": 0.6 }
       ]
     },
     {
@@ -591,6 +593,116 @@
       "synonyms": ["Auto Mechanic"],
       "adjacent": [
         { "id": "mechanical-engineer", "weight": 0.65 }
+      ]
+    },
+    {
+      "id": "industrial-engineer",
+      "title": "Industrial Engineer",
+      "soc": "17-2112.00",
+      "domain": "operations",
+      "layer": "tech",
+      "synonyms": ["Industrial Engineering", "Process Improvement Engineer", "Continuous Improvement Engineer", "Lean Engineer"],
+      "adjacent": [
+        { "id": "manufacturing-engineer", "weight": 0.85 },
+        { "id": "supply-chain-analyst", "weight": 0.8 },
+        { "id": "process-engineer", "weight": 0.8 },
+        { "id": "operations-research-analyst", "weight": 0.8 },
+        { "id": "production-planner", "weight": 0.7 },
+        { "id": "quality-engineer", "weight": 0.7 }
+      ]
+    },
+    {
+      "id": "manufacturing-engineer",
+      "title": "Manufacturing Engineer",
+      "soc": "17-2199.04",
+      "domain": "operations",
+      "layer": "tech",
+      "synonyms": ["Production Engineer", "Manufacturing Process Engineer"],
+      "adjacent": [
+        { "id": "industrial-engineer", "weight": 0.85 },
+        { "id": "process-engineer", "weight": 0.85 },
+        { "id": "quality-engineer", "weight": 0.7 },
+        { "id": "mechanical-engineer", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "process-engineer",
+      "title": "Process Engineer",
+      "soc": "17-2199.04",
+      "domain": "operations",
+      "layer": "tech",
+      "synonyms": ["Process Development Engineer"],
+      "adjacent": [
+        { "id": "manufacturing-engineer", "weight": 0.85 },
+        { "id": "industrial-engineer", "weight": 0.8 },
+        { "id": "quality-engineer", "weight": 0.7 }
+      ]
+    },
+    {
+      "id": "quality-engineer",
+      "title": "Quality Engineer",
+      "soc": "17-2112.00",
+      "domain": "operations",
+      "layer": "tech",
+      "synonyms": ["Supplier Quality Engineer", "Quality Assurance Engineer"],
+      "adjacent": [
+        { "id": "manufacturing-engineer", "weight": 0.7 },
+        { "id": "industrial-engineer", "weight": 0.7 },
+        { "id": "process-engineer", "weight": 0.7 }
+      ]
+    },
+    {
+      "id": "supply-chain-analyst",
+      "title": "Supply Chain Analyst",
+      "soc": "13-1081.02",
+      "domain": "operations",
+      "layer": "tech",
+      "synonyms": ["Supply Chain Program Analyst", "Logistics Analyst", "Procurement Analyst", "Procurement Operations Analyst", "Inventory Analyst", "Supply Planner", "Demand Planner"],
+      "adjacent": [
+        { "id": "industrial-engineer", "weight": 0.8 },
+        { "id": "production-planner", "weight": 0.8 },
+        { "id": "procurement-specialist", "weight": 0.75 },
+        { "id": "operations-research-analyst", "weight": 0.75 },
+        { "id": "logistics-coordinator", "weight": 0.7 },
+        { "id": "data-analyst", "weight": 0.6 }
+      ]
+    },
+    {
+      "id": "production-planner",
+      "title": "Production Planner",
+      "soc": "43-5061.00",
+      "domain": "operations",
+      "layer": "tech",
+      "synonyms": ["Process Planner", "Material Planner", "Production Scheduler", "Master Scheduler"],
+      "adjacent": [
+        { "id": "supply-chain-analyst", "weight": 0.8 },
+        { "id": "industrial-engineer", "weight": 0.7 }
+      ]
+    },
+    {
+      "id": "operations-research-analyst",
+      "title": "Operations Research Analyst",
+      "soc": "15-2031.00",
+      "domain": "operations",
+      "layer": "tech",
+      "synonyms": ["Operations Research", "Optimization Analyst", "Decision Analyst"],
+      "adjacent": [
+        { "id": "industrial-engineer", "weight": 0.8 },
+        { "id": "supply-chain-analyst", "weight": 0.75 },
+        { "id": "data-scientist", "weight": 0.7 },
+        { "id": "data-analyst", "weight": 0.65 }
+      ]
+    },
+    {
+      "id": "procurement-specialist",
+      "title": "Procurement Specialist",
+      "soc": "13-1023.00",
+      "domain": "operations",
+      "layer": "tech",
+      "synonyms": ["Purchasing Agent", "Sourcing Specialist", "Direct Procurement Specialist", "Commodity Buyer"],
+      "adjacent": [
+        { "id": "supply-chain-analyst", "weight": 0.75 },
+        { "id": "production-planner", "weight": 0.6 }
       ]
     }
   ]
