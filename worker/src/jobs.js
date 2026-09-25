@@ -130,42 +130,64 @@ async function metaSet(db, key, value) {
   ).bind(key, String(value)).run();
 }
 
+const UPSERT_JOB = `INSERT INTO jobs (id, country, family, company, updated_at, posted_at, cursor, content_hash, payload)
+   VALUES (?, ?, ?, ?, ?, ?, (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'cursor') - CAST(? AS INTEGER), ?, ?)
+   ON CONFLICT(id) DO UPDATE SET
+     country = excluded.country,
+     family = excluded.family,
+     company = excluded.company,
+     updated_at = excluded.updated_at,
+     posted_at = excluded.posted_at,
+     cursor = excluded.cursor,
+     content_hash = excluded.content_hash,
+     payload = excluded.payload`;
+
+/**
+ * Store new and changed jobs in one transaction: one lookup for the known hashes, then a single
+ * batch that reserves cursor numbers and writes the rows. The old loop made two or three round
+ * trips per job, so a full feed took longer than the CI step allowed.
+ */
 export async function upsertJobs(db, jobs) {
-  let cursor = Number(await metaGet(db, "cursor") || 0);
-  const changed = [];
+  const rows = [];
+  const seen = new Set();
   for (const job of jobs || []) {
     const row = publicJob(job);
-    if (!row.id || !String(row.url || "").startsWith("https://")) continue;
+    if (!row.id || seen.has(row.id) || !String(row.url || "").startsWith("https://")) continue;
+    seen.add(row.id);
     const payload = JSON.stringify(row);
-    const hash = await sha256(payload);
-    const existing = await db.prepare("SELECT content_hash FROM jobs WHERE id = ?").bind(row.id).first();
-    if (existing && existing.content_hash === hash) continue;
-    const isNew = !existing;
-    cursor += 1;
-    await db.prepare(
-      `INSERT INTO jobs (id, country, family, company, updated_at, posted_at, cursor, content_hash, payload)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         country = excluded.country,
-         family = excluded.family,
-         company = excluded.company,
-         updated_at = excluded.updated_at,
-         posted_at = excluded.posted_at,
-         cursor = excluded.cursor,
-         content_hash = excluded.content_hash,
-         payload = excluded.payload`,
-    ).bind(row.id, row.country, row.family, row.company, row.updated_at, row.posted_at, cursor, hash, payload).run();
-    if (isNew) {
-      const week = weekStart(row.posted_at);
-      await db.prepare(
+    rows.push({ row, payload, hash: await sha256(payload) });
+  }
+  const known = new Map();
+  for (let start = 0; start < rows.length; start += 90) {
+    const ids = rows.slice(start, start + 90).map((item) => item.row.id);
+    const found = await db.prepare(
+      `SELECT id, content_hash FROM jobs WHERE id IN (${ids.map(() => "?").join(",")})`,
+    ).bind(...ids).all();
+    for (const hit of found.results || []) known.set(hit.id, hit.content_hash);
+  }
+  const fresh = rows.filter((item) => known.get(item.row.id) !== item.hash);
+  if (!fresh.length) return { changed: [], cursor: String(await metaGet(db, "cursor") || "0") };
+  const statements = [
+    db.prepare(
+      `INSERT INTO meta (key, value) VALUES ('cursor', ?)
+       ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + CAST(? AS INTEGER) AS TEXT)`,
+    ).bind(String(fresh.length), String(fresh.length)),
+  ];
+  fresh.forEach(({ row, payload, hash }, index) => {
+    // Cursor numbers run in order: the reserved block ends at the new meta value.
+    const back = fresh.length - 1 - index;
+    statements.push(db.prepare(UPSERT_JOB).bind(
+      row.id, row.country, row.family, row.company, row.updated_at, row.posted_at, String(back), hash, payload,
+    ));
+    if (!known.has(row.id)) {
+      statements.push(db.prepare(
         `INSERT INTO company_weeks (company, week, new_jobs) VALUES (?, ?, 1)
          ON CONFLICT(company, week) DO UPDATE SET new_jobs = new_jobs + 1`,
-      ).bind(row.company, week).run();
+      ).bind(row.company, weekStart(row.posted_at)));
     }
-    changed.push(row);
-  }
-  await metaSet(db, "cursor", cursor);
-  return { changed, cursor: String(cursor) };
+  });
+  await db.batch(statements);
+  return { changed: fresh.map((item) => item.row), cursor: String(await metaGet(db, "cursor") || "0") };
 }
 
 export function searchLimit(value) {

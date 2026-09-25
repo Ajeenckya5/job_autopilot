@@ -198,3 +198,35 @@ test("search returns titles that fit the roles across the look-back before newer
   assert.deepEqual(searchTerms(["ML", "Machine  Learning", "100%_sure", "x".repeat(50)]), ["machine learning", "100 sure"]);
 });
 
+
+test("a batch of jobs gets ordered cursors in one transaction and unchanged jobs are skipped", async () => {
+  const app = createApp();
+  const db = env();
+  const jobs = Array.from({ length: 25 }, (_, i) => ({
+    id: `gh-batch-${i}`,
+    source: "greenhouse",
+    company: `Company ${i % 3}`,
+    title: "Data Scientist",
+    url: `https://example.com/jobs/batch-${i}`,
+    location_raw: "Boston, MA",
+    posted_at: "2026-09-20T00:00:00Z",
+    description_text: "&lt;p&gt;SQL&lt;/p&gt;",
+  }));
+  const first = await call(app, db, "POST", "/v1/jobs", { jobs }, { "x-ingest-token": "test-token" });
+  assert.equal(first.json.changed, 25);
+  assert.equal(first.json.cursor, "25");
+  const again = await call(app, db, "POST", "/v1/jobs", { jobs }, { "x-ingest-token": "test-token" });
+  assert.equal(again.json.changed, 0);
+  const edited = await call(app, db, "POST", "/v1/jobs", {
+    jobs: [{ ...jobs[3], title: "Senior Data Scientist" }, jobs[4]],
+  }, { "x-ingest-token": "test-token" });
+  assert.equal(edited.json.changed, 1);
+  assert.equal(edited.json.cursor, "26");
+  const page = await call(app, db, "GET", "/v1/jobs?since=0");
+  const cursors = new Map(page.json.jobs.map((job, index) => [job.id, index]));
+  assert.equal(page.json.jobs.length, 25);
+  assert.equal(page.json.jobs.at(-1).id, "gh-batch-3");
+  assert.equal(cursors.get("gh-batch-0") < cursors.get("gh-batch-24"), true);
+  assert.equal(page.json.jobs[0].country, "united-states");
+  assert.equal(page.json.jobs[0].description_text, "SQL");
+});

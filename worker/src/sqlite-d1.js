@@ -26,6 +26,19 @@ export function memoryKv(initial = {}) {
 
 export function asD1(db) {
   return {
+    /** Like D1: every statement runs, in order, inside one transaction. */
+    async batch(statements) {
+      db.exec("BEGIN");
+      try {
+        const out = [];
+        for (const statement of statements) out.push(await statement.run());
+        db.exec("COMMIT");
+        return out;
+      } catch (err) {
+        db.exec("ROLLBACK");
+        throw err;
+      }
+    },
     prepare(sql) {
       return {
         bind(...args) {
