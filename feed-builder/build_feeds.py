@@ -6,11 +6,13 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import html
 import json
 import os
 import re
 import ssl
 import time
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -40,8 +42,14 @@ class _Text(HTMLParser):
 
 
 def strip_html(raw: str, limit: int = 1500) -> str:
+    source = raw or ""
+    # Greenhouse sends escaped HTML (&lt;div&gt;), so one parse leaves the tags as text.
+    for _ in range(2):
+        if not re.search(r"&(lt|gt|amp|quot|#\d+);", source):
+            break
+        source = html.unescape(source)
     parser = _Text()
-    parser.feed(raw or "")
+    parser.feed(source)
     text = re.sub(r"\s+", " ", " ".join(parser.parts)).strip()
     if limit and len(text) > limit:
         return text[:limit]
@@ -302,10 +310,16 @@ def merge_locations(current: dict, job: dict) -> None:
         current["locations"] = seen
 
 
+def normalize_title(title: str) -> str:
+    """Case, spacing, dashes and brackets do not make a new job. Letters in any script stay."""
+    text = unicodedata.normalize("NFKC", str(title or "")).lower()
+    return re.sub(r"[^\w+#]+|_", " ", text).strip()
+
+
 def posting_key(job: dict) -> str:
     company = clean_company(job.get("company")).lower()
-    title = re.sub(r"\s+", " ", str(job.get("title") or "")).strip().lower()
-    desc = re.sub(r"\s+", " ", str(job.get("description_text") or "")).strip().lower()[:480]
+    title = normalize_title(job.get("title"))
+    desc = normalize_title(job.get("description_text"))[:480]
     if len(desc) >= 80:
         return f"{job.get('source') or ''}|{company}|{title}|{desc}"
     url = str(job.get("url") or "").split("?")[0].rstrip("/").lower()

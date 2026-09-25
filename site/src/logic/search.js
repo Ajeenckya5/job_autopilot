@@ -1,5 +1,6 @@
 import { apiBase } from "./sync.js";
-import { clampLookback } from "./text.js";
+import { familyMap } from "./match.js";
+import { clampLookback, htmlToText } from "./text.js";
 
 export const JOBS_API = "https://jobs-api.ajeenckyam8.workers.dev";
 export const SEARCH_LIMIT = 300;
@@ -34,11 +35,34 @@ export function familiesFor(roles) {
   return [...found].slice(0, 4);
 }
 
+/**
+ * Title phrases the API searches first: what the person typed, then each related role's title and
+ * synonyms, closest first. Short ones ("ML") are ranked here instead, since they match inside words.
+ */
+export function searchTermsFor(profile, max = 16) {
+  const source = profile || {};
+  const terms = [];
+  const add = (value) => {
+    const term = String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+    if (term.length >= 4 && term.length <= 40 && !terms.includes(term)) terms.push(term);
+  };
+  (source.roles || []).forEach(add);
+  [...familyMap(source).values()]
+    .filter((entry) => entry.weight >= 0.6)
+    .sort((a, b) => b.weight - a.weight)
+    .forEach((entry) => {
+      add(entry.role.title);
+      (entry.role.synonyms || []).forEach(add);
+    });
+  return terms.slice(0, max);
+}
+
 export function searchQuery(profile, now = Date.now()) {
   const days = clampLookback(profile && profile.lookback_days);
   return {
     countries: countriesFor(profile && profile.locations),
     families: familiesFor(profile && profile.roles),
+    terms: searchTermsFor(profile),
     since: new Date(now - days * 86400000).toISOString(),
     limit: SEARCH_LIMIT,
   };
@@ -53,12 +77,18 @@ export async function fetchCandidates(profile, env = globalThis) {
   const url = new URL(`${jobsApi()}/v1/search`);
   query.countries.forEach((country) => url.searchParams.append("country", country));
   query.families.forEach((family) => url.searchParams.append("family", family));
+  query.terms.forEach((term) => url.searchParams.append("term", term));
   url.searchParams.set("since", query.since);
   url.searchParams.set("limit", String(SEARCH_LIMIT));
   const response = await env.fetch(url, { mode: "cors" });
   if (!response.ok) throw new Error("Search is unavailable.");
   const body = await response.json();
-  return (body.jobs || []).slice(0, SEARCH_LIMIT);
+  const jobs = (body.jobs || []).slice(0, SEARCH_LIMIT).map((job) => ({
+    ...job,
+    description_text: htmlToText(job.description_text),
+  }));
+  jobs.titleMatches = Math.min(jobs.length, Number(body.title_matches) || 0);
+  return jobs;
 }
 
 export async function fetchJobText(job, env = globalThis) {
@@ -67,7 +97,7 @@ export async function fetchJobText(job, env = globalThis) {
     const response = await env.fetch(`${base}/v1/job/${encodeURIComponent(job?.id || "")}`);
     if (!response.ok) return "";
     const body = await response.json();
-    return String(body.description_text || "");
+    return htmlToText(body.description_text);
   } catch (_) {
     return "";
   }

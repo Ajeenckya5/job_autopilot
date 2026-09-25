@@ -1,5 +1,6 @@
 import catalog from "../catalog.json" with { type: "json" };
 import { embed } from "./embed.js";
+import { US_STATES, htmlToText } from "./text.js";
 
 export const EVENT_NAMES = ["onboarding_step", "search_run", "apply_clicked"];
 
@@ -53,7 +54,8 @@ export function publicJob(job) {
   row.id = String(row.id || "");
   row.company = String(row.company || "").replace(/\s+/g, " ").trim();
   row.title = String(row.title || "");
-  row.country = row.country || countryOf(row.location_raw || "");
+  if (row.description_text) row.description_text = htmlToText(row.description_text);
+  row.country = row.country || countryOf(row.location_raw || "", row.locations);
   row.family = row.family || familyOf(`${row.title} ${row.department || ""}`);
   row.updated_at = String(row.updated_at || row.posted_at || new Date().toISOString());
   row.posted_at = String(row.posted_at || row.updated_at);
@@ -62,11 +64,24 @@ export function publicJob(job) {
   return row;
 }
 
-export function countryOf(location) {
+const FOREIGN = /germany|india|united kingdom|\buk\b|france|brazil|nigeria|singapore|canada|mexico|ireland|netherlands|spain|poland|japan|australia|israel/i;
+const US_WORDS = /united states|\busa\b|u\.s\.|chicago|new york|california|texas|seattle|boston|san francisco|los angeles|austin|denver|atlanta|washington,? d\.?c/i;
+const STATE_CODE = new RegExp(`,\\s*(?:${US_STATES.join("|")})(?![A-Za-z])`);
+
+/**
+ * "San Francisco, CA" is the United States. Structured countries win; then a two-letter state
+ * after a comma (case-sensitive, so "Ca" in a word does not count); then place names.
+ */
+export function countryOf(location, locations) {
+  const named = (Array.isArray(locations) ? locations : [])
+    .map((row) => String((row && row.country) || "").trim())
+    .filter(Boolean);
+  if (named.some((name) => /^(united states|usa|us|u\.s\.)$/i.test(name))) return "united-states";
+  if (named.length) return "other";
   const blob = String(location || "");
-  if (/germany|india|united kingdom|\buk\b|france|brazil|nigeria|singapore/i.test(blob)) return "other";
-  if (/\bremote\b/i.test(blob) && !/united states|usa|u\.s\./i.test(blob)) return "remote";
-  if (/united states|\busa\b|u\.s\.|chicago|new york|california|texas|remote/i.test(blob)) return "united-states";
+  if (FOREIGN.test(blob)) return "other";
+  if (/\bremote\b/i.test(blob) && !US_WORDS.test(blob) && !STATE_CODE.test(blob)) return "remote";
+  if (US_WORDS.test(blob) || STATE_CODE.test(blob) || /\bremote\b/i.test(blob)) return "united-states";
   return "other";
 }
 
@@ -183,7 +198,17 @@ export function embedProfile({ skills, roles }) {
   return embed(`${(skills || []).join(" ")} ${(roles || []).join(" ")}`);
 }
 
-export async function searchJobs(db, { countries, families, since, limit } = {}) {
+/** Title phrases for search. Under 4 letters ("ml", "rn") would match inside words, so the site ranks those. */
+export function searchTerms(values) {
+  const clean = (values || []).map((value) => String(value || "")
+    .toLowerCase()
+    .replace(/[%_\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim());
+  return [...new Set(clean.filter((term) => term.length >= 4 && term.length <= 40))].slice(0, 16);
+}
+
+export async function searchJobs(db, { countries, families, since, limit, terms } = {}) {
   const countryList = [...new Set((countries || []).map((value) => String(value || "").slice(0, 40)).filter(Boolean))].slice(0, 4);
   const familyList = [...new Set((families || []).map((value) => String(value || "").slice(0, 40)).filter(Boolean))].slice(0, 4);
   if (!countryList.length || !familyList.length) return { jobs: [] };
@@ -191,15 +216,36 @@ export async function searchJobs(db, { countries, families, since, limit } = {})
   const sinceIso = String(since || "").slice(0, 40) || new Date(Date.now() - 14 * 86400000).toISOString();
   const countryMarks = countryList.map(() => "?").join(",");
   const familyMarks = familyList.map(() => "?").join(",");
-  const result = await db.prepare(
-    `SELECT payload FROM jobs
-     WHERE posted_at >= ?
-       AND country IN (${countryMarks})
-       AND family IN (${familyMarks})
-     ORDER BY posted_at DESC
-     LIMIT ?`,
-  ).bind(sinceIso, ...countryList, ...familyList, cap).all();
-  const jobs = (result.results || []).slice(0, cap).map((row) => {
+  const where = `posted_at >= ? AND country IN (${countryMarks}) AND family IN (${familyMarks})`;
+  const scope = [sinceIso, ...countryList, ...familyList];
+  const termList = searchTerms(terms);
+  const picked = [];
+  const seen = new Set();
+  const take = (rows) => {
+    for (const row of rows || []) {
+      if (picked.length >= cap) break;
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      picked.push(row);
+    }
+  };
+  // Titles that fit the person's roles first, across the whole look-back, then the newest of the family.
+  // Without this, 300 of the newest software jobs covered about two days and few of them were the role.
+  if (termList.length) {
+    const likes = termList.map(() => "lower(json_extract(payload, '$.title')) LIKE ?").join(" OR ");
+    const hits = await db.prepare(
+      `SELECT id, payload FROM jobs WHERE ${where} AND (${likes}) ORDER BY posted_at DESC LIMIT ?`,
+    ).bind(...scope, ...termList.map((term) => `%${term}%`), cap).all();
+    take(hits.results);
+  }
+  const titleHits = picked.length;
+  if (picked.length < cap) {
+    const recent = await db.prepare(
+      `SELECT id, payload FROM jobs WHERE ${where} ORDER BY posted_at DESC LIMIT ?`,
+    ).bind(...scope, cap).all();
+    take(recent.results);
+  }
+  const jobs = picked.map((row) => {
     const job = JSON.parse(row.payload);
     if (!Array.isArray(job.embedding) || job.embedding.length !== 384) {
       job.embedding = embed(`${job.title || ""} ${job.description_text || ""} ${job.department || ""}`);
@@ -207,7 +253,7 @@ export async function searchJobs(db, { countries, families, since, limit } = {})
     if (job.description_text) job.description_text = String(job.description_text).slice(0, 4000);
     return job;
   });
-  return { jobs };
+  return { jobs, title_matches: titleHits };
 }
 
 export async function jobById(db, id) {

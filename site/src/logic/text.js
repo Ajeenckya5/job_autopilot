@@ -47,6 +47,35 @@ export function cosine(a, b) {
   return s;
 }
 
+const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+
+function decodeEntities(text) {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, code) => {
+    const key = code.toLowerCase();
+    if (key[0] === "#") {
+      const n = key[1] === "x" ? parseInt(key.slice(2), 16) : parseInt(key.slice(1), 10);
+      if (!Number.isFinite(n) || n < 1 || n > 0x10ffff) return match;
+      return String.fromCodePoint(n);
+    }
+    return ENTITIES[key] ?? match;
+  });
+}
+
+/** Job boards send HTML, sometimes escaped twice. Matching, the LLM and the card want plain text. */
+export function htmlToText(raw) {
+  let text = String(raw || "");
+  if (/[<&]/.test(text)) {
+    for (let i = 0; i < 2 && /&(lt|gt|amp|quot|#\d+);/i.test(text); i += 1) text = decodeEntities(text);
+    text = text
+      .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi, " ")
+      .replace(/<(br|li|\/p|\/div|\/li|\/h[1-6]|\/tr|\/ul|\/ol)\b[^>]*>/gi, "\n")
+      .replace(/<[^>]*>/g, " ");
+    text = decodeEntities(text);
+  }
+  // Keep line breaks: the LLM and the requirements reader use them to find sections.
+  return text.replace(/[^\S\n]+/g, " ").replace(/ ?\n\s*/g, "\n").trim();
+}
+
 export function clampLookback(days) {
   const n = Number(days);
   if (!Number.isFinite(n)) return 14;

@@ -1,7 +1,7 @@
 import { canonicalUrl } from "../lib/sources.js";
 import { scoreAll } from "./match.js";
 import { skillsFromText } from "./resume.js";
-import { clampLookback } from "./text.js";
+import { clampLookback, htmlToText } from "./text.js";
 
 const US = /\b(al|ak|az|ar|ca|co|ct|dc|de|fl|ga|hi|ia|id|il|in|ks|ky|la|ma|md|me|mi|mn|mo|ms|mt|nc|nd|ne|nh|nj|nm|nv|ny|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|va|vt|wa|wi|wv|wy|usa|united states|remote)\b/i;
 
@@ -139,10 +139,23 @@ export function jobLocationText(job) {
   return [job.location_raw || job.location || ""];
 }
 
+/**
+ * Title for duplicate checks: case, spacing, dashes and brackets do not make a new job.
+ * "In Office RN- NY Licensed" and "In Office RN-NY Licensed" are one posting. Letters in any
+ * script are kept, as are + and # (C++, C#).
+ */
+export function normalizeTitle(title) {
+  return String(title || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}+#]+/gu, " ")
+    .trim();
+}
+
 export function postingKey(job) {
   const company = cleanCompany(job.company).toLowerCase();
-  const title = String(job.title || "").replace(/\s+/g, " ").trim().toLowerCase();
-  const desc = String(job.description_text || "").replace(/\s+/g, " ").trim().toLowerCase().slice(0, 480);
+  const title = normalizeTitle(job.title);
+  const desc = normalizeTitle(htmlToText(job.description_text)).slice(0, 480);
   const url = canonicalUrl(job.url);
   if (desc.length >= 80) return `${company}|${title}|${desc}`;
   if (url) return `url|${url}`;
@@ -192,19 +205,47 @@ export function collapsePostings(jobs) {
   return order.map((key) => map.get(key));
 }
 
-function eligible(job, profile, now) {
-  const days = clampLookback(profile.lookback_days);
-  if (!locationOk(jobLocationText(job), profile.locations)) return false;
-  if (!withinLookback(job.posted_at, days, now)) return false;
+/** The first rule that keeps a job off the list, or "" when it is eligible. */
+export function ineligibleReason(job, profile, now = Date.now()) {
+  const source = profile || {};
+  const days = clampLookback(source.lookback_days);
+  if (!locationOk(jobLocationText(job), source.locations)) return "location";
+  if (!withinLookback(job.posted_at, days, now)) return "lookback";
   const years = job.years_required == null ? yearsRequired(job.title, job.description_text) : job.years_required;
-  if (profile.max_years && years && years > Number(profile.max_years)) return false;
-  if (profile.sponsorship_needed && (job.sponsorship || sponsorshipOf(job.description_text)) === "no") return false;
+  if (source.max_years && years && years > Number(source.max_years)) return "years";
+  if (source.sponsorship_needed && (job.sponsorship || sponsorshipOf(job.description_text)) === "no") return "sponsorship";
   const remote = job.remote_type === "remote" || /remote/.test(job.location_raw || "");
-  if (profile.remote_only && !remote) return false;
-  if (profile.min_salary && job.salary_max && Number(job.salary_max) < Number(profile.min_salary)) return false;
-  if (profile.skip_leadership && /\b(staff|principal|director|vice president|\bvp\b|head of)\b/i.test(job.title || "")) return false;
-  if (titleScore(job.title, profile.downrank || []) >= 0.5) return false;
-  return true;
+  if (source.remote_only && !remote) return "remote";
+  if (source.min_salary && job.salary_max && Number(job.salary_max) < Number(source.min_salary)) return "salary";
+  if (source.skip_leadership && /\b(staff|principal|director|vice president|\bvp\b|head of)\b/i.test(job.title || "")) return "leadership";
+  if (titleScore(job.title, source.downrank || []) >= 0.5) return "downrank";
+  return "";
+}
+
+function eligible(job, profile, now) {
+  return !ineligibleReason(job, profile, now);
+}
+
+/** Plain words for each rule, so a short list can say where the other roles went. */
+export function breakdownLabel(id, profile = {}) {
+  const days = clampLookback(profile.lookback_days);
+  const labels = {
+    location: "outside your places",
+    lookback: `posted more than ${days} days ago`,
+    years: `ask for more than ${profile.max_years} years`,
+    sponsorship: "say they cannot sponsor a visa",
+    remote: "not remote",
+    salary: `pay tops out under ${profile.min_salary}`,
+    leadership: "staff, principal or director titles",
+    downrank: "titles you chose to skip",
+    possible: "weak matches (turn on Show possible matches)",
+    query: "hidden by your search box or status",
+    score: "under your minimum score",
+    remoteOnly: "hidden by Remote only",
+    since: "seen before your last visit",
+    duplicate: "duplicate postings merged into one",
+  };
+  return labels[id] || id;
 }
 
 export function searchPool(jobs, profile, now = Date.now()) {
@@ -220,11 +261,22 @@ export function rankJob(job, profile, now = Date.now()) {
 
 export function selectJobs(jobs, profile, controls = {}, now = Date.now()) {
   const pool = (jobs || []).filter((job) => job.status !== "hidden");
-  const ranked = rankAll(pool, profile || {}, now);
+  const removed = {};
+  const count = (id, n) => {
+    if (n > 0) removed[id] = (removed[id] || 0) + n;
+  };
+  const keep = [];
+  pool.forEach((job) => {
+    const why = ineligibleReason(job, profile || {}, now);
+    if (why) count(why, 1);
+    else keep.push(job);
+  });
+  const ranked = scoreAll(keep, profile || {}, now).map((job) => ({ ...job, company: cleanCompany(job.company) }));
   const reasons = [];
   let rows = ranked;
   if (!controls.showPossible) {
     const next = rows.filter((job) => job.bucket !== "possible");
+    count("possible", rows.length - next.length);
     if (rows.length && !next.length) {
       reasons.push({
         id: "possible",
@@ -244,6 +296,7 @@ export function selectJobs(jobs, profile, controls = {}, now = Date.now()) {
     });
   }
   const queried = filterJobsSafe(rows, controls);
+  count("query", rows.length - queried.length);
   if (rows.length && !queried.length) {
     const why = controls.q ? "that search" : `status ${controls.status}`;
     reasons.push({ id: "query", text: `${rows.length} roles hidden by ${why}.`, fix: "clear-query" });
@@ -251,6 +304,7 @@ export function selectJobs(jobs, profile, controls = {}, now = Date.now()) {
   rows = queried;
   if (Number(controls.minScore)) {
     const next = rows.filter((job) => (job.match_score || 0) >= Number(controls.minScore));
+    count("score", rows.length - next.length);
     if (rows.length && !next.length) {
       reasons.push({ id: "score", text: `${rows.length} roles hidden by minimum score ${controls.minScore}.`, fix: "clear-score" });
     }
@@ -258,6 +312,7 @@ export function selectJobs(jobs, profile, controls = {}, now = Date.now()) {
   }
   if (controls.remoteOnly) {
     const next = rows.filter((job) => job.remote_type === "remote" || /remote/i.test(job.location_raw || ""));
+    count("remoteOnly", rows.length - next.length);
     if (rows.length && !next.length) {
       reasons.push({ id: "remote", text: `${rows.length} roles hidden by Remote only.`, fix: "clear-remote" });
     }
@@ -265,12 +320,15 @@ export function selectJobs(jobs, profile, controls = {}, now = Date.now()) {
   }
   if (controls.since) {
     const next = rows.filter((job) => String(job.posted_at || "") > controls.since);
+    count("since", rows.length - next.length);
     if (rows.length && !next.length) {
       reasons.push({ id: "since", text: `${rows.length} roles hidden by new since last visit.`, fix: "clear-since" });
     }
     rows = next;
   }
+  const before = rows.length;
   rows = collapsePostings(rows);
+  count("duplicate", before - rows.length);
   if (rows.length < 20 && days < 30) {
     const wider = selectJobs(jobs, { ...(profile || {}), lookback_days: 30 }, controls, now);
     const seen = new Set(rows.map((job) => postingKey(job)));
@@ -284,7 +342,10 @@ export function selectJobs(jobs, profile, controls = {}, now = Date.now()) {
       });
     }
   }
-  return { rows, reasons };
+  const breakdown = Object.entries(removed)
+    .map(([id, n]) => ({ id, count: n, text: `${n} ${breakdownLabel(id, profile || {})}` }))
+    .sort((a, b) => b.count - a.count);
+  return { rows, reasons, breakdown, considered: pool.length };
 }
 
 function filterJobsSafe(rows, controls) {
