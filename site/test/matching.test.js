@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
 import { rankAll } from "../src/logic/jobs.js";
-import { familyChips, noteFeedback, resetFeedback, TAXONOMY_ATTRIBUTION } from "../src/logic/match.js";
+import { familyChips, noteFeedback, resetFeedback } from "../src/logic/match.js";
 
 const data = JSON.parse(readFileSync(new URL("./fixtures/matching/personas.json", import.meta.url)));
 const now = Date.parse("2026-09-23T12:00:00Z");
@@ -43,14 +43,19 @@ function evaluate(persona) {
 }
 
 describe("role family matching", () => {
-  it("attributes O*NET and keeps the machine learning example", () => {
-    expect(TAXONOMY_ATTRIBUTION).toMatch(/CC BY 4.0/);
-    expect(TAXONOMY_ATTRIBUTION).toMatch(/onetcenter\.org/);
+  it("learns related titles from postings, with no role list", () => {
     const chips = familyChips({
       roles: ["Machine Learning Engineer"],
       resume_text: "Analytics Engineer\n2018 - 2026\npython pytorch",
-    }).map((chip) => chip.label);
-    expect(chips).toEqual(expect.arrayContaining(["AI Engineer", "Applied Scientist", "MLOps Engineer"]));
+    });
+    const labels = chips.map((chip) => chip.label);
+    expect(labels).toEqual(expect.arrayContaining(["ML Engineer", "Data Engineer"]));
+    chips.forEach((chip) => {
+      expect(chip.kind).toBe("related");
+      expect(chip.weight).toBeGreaterThan(0);
+      expect(chip.weight).toBeLessThanOrEqual(0.85);
+    });
+    expect(familyChips({ roles: ["Sommelier"] })).toEqual([]);
   });
 
   it("meets precision, NDCG, recall, and score separation on 60 personas", () => {
@@ -64,14 +69,18 @@ describe("role family matching", () => {
     expect(mean("gap")).toBeGreaterThanOrEqual(30);
   });
 
-  it("ranks the automotive ML persona into ML, applied science, and data science", () => {
+  it("ranks the automotive ML persona into ML, data science and the data work on the resume", () => {
     const persona = data.personas.find((row) => row.id === "ml-automotive");
     const { ranked } = evaluate(persona);
     const top = ranked.slice(0, 10).map((job) => job.title);
     expect(top.some((title) => /devops|sales/i.test(title))).toBe(false);
+    // The resume also lists Analytics Engineer, whose postings read like data engineering ones.
     top.forEach((title) => {
-      expect(title).toMatch(/machine learning|ml engineer|\bmle\b|ai engineer|applied scientist|data scientist|research scientist|ml scientist/i);
+      expect(title).toMatch(/machine learning|ml engineer|\bmle\b|ai engineer|scientist|data engineer|data platform/i);
     });
+    // Scientist titles whose postings ask for as much of this resume come right after the targets.
+    expect(ranked.slice(0, 10).every((job) => job.label === "strong" || job.label === "good")).toBe(true);
+    expect(top.filter((title) => /machine learning|ml engineer|data scientist/i.test(title)).length).toBeGreaterThanOrEqual(6);
     const card = ranked[0];
     expect(card.tier).toBe("strong");
     expect(card.relation).toBe("Your target");
@@ -93,8 +102,9 @@ describe("role family matching", () => {
     const persona = data.personas.find((row) => row.id === "ml-automotive");
     const profile = profileOf(persona);
     const before = rankAll(persona.jobs, profile, now);
-    const hidden = rankAll(persona.jobs, { ...profile, hidden_roles: ["applied-scientist"] }, now);
-    const applied = before.find((job) => job.title === "Applied Scientist");
+    const chip = familyChips(profile).find((row) => row.id === "data engineer");
+    const hidden = rankAll(persona.jobs, { ...profile, hidden_roles: [chip.id] }, now);
+    const applied = before.find((job) => job.title === "Data Engineer");
     const after = hidden.find((job) => job.id === applied.id);
     expect(after.match_score).toBeLessThan(applied.match_score);
     const tuned = noteFeedback(profile, before[0], 1);
@@ -125,7 +135,32 @@ describe("role family matching", () => {
     expect(globalThis.performance.now() - start).toBeLessThan(1500);
     expect(ranked).toHaveLength(25000);
     const again = globalThis.performance.now();
-    rankAll(jobs, { ...profile, hidden_roles: ["mlops-engineer", "applied-scientist"] }, now);
+    rankAll(jobs, { ...profile, hidden_roles: familyChips(profile).map((chip) => chip.id) }, now);
     expect(globalThis.performance.now() - again).toBeLessThan(300);
   });
+
+  it("relates titles through the search's own postings when the lexicon knows too few", () => {
+    const job = (id, title, company, text) => ({
+      id, title, company, location_raw: "United States", posted_at: "2026-09-20T00:00:00Z", url: `https://example.com/${id}`, description_text: text,
+    });
+    const shop = "Run time studies, line balancing and kaizen events; value stream mapping and 5S on assembly lines.";
+    const jobs = [
+      ...["A", "B", "C", "D"].map((c, i) => job(`ie${i}`, "Industrial Engineer", `Plant ${c}`, shop)),
+      ...["E", "F", "G"].map((c, i) => job(`me${i}`, "Manufacturing Engineer", `Works ${c}`, `Improve throughput with line balancing, kaizen events and 5S. ${shop}`)),
+      ...["H", "I", "J"].map((c, i) => job(`se${i}`, "Software Engineer", `Apps ${c}`, "Build React and TypeScript front ends with GraphQL.")),
+    ];
+    const profile = {
+      roles: ["Industrial Engineer"],
+      resume_text: "Industrial Engineer\n2022 - 2026\n- Led time studies, line balancing and kaizen events\n- Value stream mapping and 5S on assembly lines",
+      lookback_days: 30,
+    };
+    const ranked = rankAll(jobs, profile, now);
+    const made = ranked.find((row) => row.title === "Manufacturing Engineer");
+    const soft = ranked.find((row) => row.title === "Software Engineer");
+    expect(made.relation).toBe("Related: Manufacturing Engineer");
+    expect(made.bucket).toBe("match");
+    expect(made.match_score).toBeGreaterThan(soft.match_score + 20);
+    expect(ranked[0].relation).toBe("Your target");
+  });
 });
+

@@ -1,6 +1,6 @@
 import catalog from "../catalog.json" with { type: "json" };
 import { embed } from "./embed.js";
-import { US_STATES, htmlToText } from "./text.js";
+import { US_STATES, htmlToText, searchable } from "./text.js";
 
 export const EVENT_NAMES = ["onboarding_step", "search_run", "apply_clicked"];
 
@@ -56,7 +56,7 @@ export function publicJob(job) {
   row.title = String(row.title || "");
   if (row.description_text) row.description_text = htmlToText(row.description_text);
   row.country = row.country || countryOf(row.location_raw || "", row.locations);
-  row.family = row.family || familyOf(`${row.title} ${row.department || ""}`);
+  row.family = String(row.family || "").slice(0, 40);
   row.updated_at = String(row.updated_at || row.posted_at || new Date().toISOString());
   row.posted_at = String(row.posted_at || row.updated_at);
   if (String(row.url || "").startsWith("http://")) row.url = `https://${String(row.url).slice(7)}`;
@@ -83,15 +83,6 @@ export function countryOf(location, locations) {
   if (/\bremote\b/i.test(blob) && !US_WORDS.test(blob) && !STATE_CODE.test(blob)) return "remote";
   if (US_WORDS.test(blob) || STATE_CODE.test(blob) || /\bremote\b/i.test(blob)) return "united-states";
   return "other";
-}
-
-export function familyOf(text) {
-  const blob = String(text || "").toLowerCase();
-  if (/nurse|clinic|health|patient|pharma/.test(blob)) return "health";
-  if (/driver|warehouse|logistic|supply/.test(blob)) return "logistics";
-  if (/retail|cashier|sales associate/.test(blob)) return "retail";
-  if (/engineer|software|data|design|product/.test(blob)) return "software";
-  return "general";
 }
 
 export async function sha256(text) {
@@ -130,11 +121,13 @@ async function metaSet(db, key, value) {
   ).bind(key, String(value)).run();
 }
 
-const UPSERT_JOB = `INSERT INTO jobs (id, country, family, company, updated_at, posted_at, cursor, content_hash, payload)
-   VALUES (?, ?, ?, ?, ?, ?, (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'cursor') - CAST(? AS INTEGER), ?, ?)
+const UPSERT_JOB = `INSERT INTO jobs (id, country, family, company, updated_at, posted_at, cursor, content_hash, payload, title_lc, text_lc)
+   VALUES (?, ?, ?, ?, ?, ?, (SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'cursor') - CAST(? AS INTEGER), ?, ?, ?, ?)
    ON CONFLICT(id) DO UPDATE SET
      country = excluded.country,
      family = excluded.family,
+     title_lc = excluded.title_lc,
+     text_lc = excluded.text_lc,
      company = excluded.company,
      updated_at = excluded.updated_at,
      posted_at = excluded.posted_at,
@@ -178,6 +171,7 @@ export async function upsertJobs(db, jobs) {
     const back = fresh.length - 1 - index;
     statements.push(db.prepare(UPSERT_JOB).bind(
       row.id, row.country, row.family, row.company, row.updated_at, row.posted_at, String(back), hash, payload,
+      searchable(row.title), searchable(row.description_text).slice(0, 4000),
     ));
     if (!known.has(row.id)) {
       statements.push(db.prepare(
@@ -220,62 +214,58 @@ export function embedProfile({ skills, roles }) {
   return embed(`${(skills || []).join(" ")} ${(roles || []).join(" ")}`);
 }
 
-/** Title phrases for search. Under 4 letters ("ml", "rn") would match inside words, so the site ranks those. */
-export function searchTerms(values) {
-  const clean = (values || []).map((value) => String(value || "")
-    .toLowerCase()
-    .replace(/[%_\\]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim());
-  return [...new Set(clean.filter((term) => term.length >= 4 && term.length <= 40))].slice(0, 16);
+/** Phrases for search, folded like stored text. Matching is by whole words, so "rn" is safe. */
+export function searchTerms(values, max = 16) {
+  const clean = (values || []).map((value) => searchable(value));
+  return [...new Set(clean.filter((term) => term.length >= 2 && term.length <= 40))].slice(0, max);
 }
 
-export async function searchJobs(db, { countries, families, since, limit, terms } = {}) {
+/**
+ * Up to 300 jobs for a person, in any field. First the ones whose title holds a title they search
+ * for, then the ones whose posting uses the most of their resume's skill phrases, newest first.
+ * Place and look-back filter; nothing sorts jobs into fixed families. The first pass reads only ids
+ * and scores, so sorting stays small; the payloads of the chosen few are read after.
+ */
+export async function searchJobs(db, { countries, since, limit, terms, skills } = {}) {
   const countryList = [...new Set((countries || []).map((value) => String(value || "").slice(0, 40)).filter(Boolean))].slice(0, 4);
-  const familyList = [...new Set((families || []).map((value) => String(value || "").slice(0, 40)).filter(Boolean))].slice(0, 4);
-  if (!countryList.length || !familyList.length) return { jobs: [] };
+  if (!countryList.length) return { jobs: [], title_matches: 0 };
   const cap = searchLimit(limit);
   const sinceIso = String(since || "").slice(0, 40) || new Date(Date.now() - 14 * 86400000).toISOString();
-  const countryMarks = countryList.map(() => "?").join(",");
-  const familyMarks = familyList.map(() => "?").join(",");
-  const where = `posted_at >= ? AND country IN (${countryMarks}) AND family IN (${familyMarks})`;
-  const scope = [sinceIso, ...countryList, ...familyList];
   const termList = searchTerms(terms);
-  const picked = [];
-  const seen = new Set();
-  const take = (rows) => {
-    for (const row of rows || []) {
-      if (picked.length >= cap) break;
-      if (seen.has(row.id)) continue;
-      seen.add(row.id);
-      picked.push(row);
-    }
-  };
-  // Titles that fit the person's roles first, across the whole look-back, then the newest of the family.
-  // Without this, 300 of the newest software jobs covered about two days and few of them were the role.
-  if (termList.length) {
-    const likes = termList.map(() => "lower(json_extract(payload, '$.title')) LIKE ?").join(" OR ");
-    const hits = await db.prepare(
-      `SELECT id, payload FROM jobs WHERE ${where} AND (${likes}) ORDER BY posted_at DESC LIMIT ?`,
-    ).bind(...scope, ...termList.map((term) => `%${term}%`), cap).all();
-    take(hits.results);
+  const skillList = searchTerms(skills, 12);
+  // Padded with spaces so a phrase matches whole words only: "lean" is not "clean".
+  const titleHit = termList.length ? termList.map(() => "(' ' || title_lc || ' ') LIKE ?").join(" OR ") : "0";
+  const skillHits = skillList.length ? skillList.map(() => "((' ' || text_lc || ' ') LIKE ?)").join(" + ") : "0";
+  const ranked = await db.prepare(
+    `SELECT id, (${titleHit}) AS title_hit, (${skillHits}) AS skill_hits FROM jobs
+     WHERE posted_at >= ? AND country IN (${countryList.map(() => "?").join(",")})
+     ORDER BY title_hit DESC, skill_hits DESC, posted_at DESC LIMIT ?`,
+  ).bind(
+    ...termList.map((term) => `% ${term} %`),
+    ...skillList.map((skill) => `% ${skill} %`),
+    sinceIso,
+    ...countryList,
+    cap,
+  ).all();
+  const order = (ranked.results || []).map((row) => row.id);
+  const titleMatches = (ranked.results || []).filter((row) => Number(row.title_hit) > 0).length;
+  const payloads = new Map();
+  for (let start = 0; start < order.length; start += 90) {
+    const ids = order.slice(start, start + 90);
+    const found = await db.prepare(
+      `SELECT id, payload FROM jobs WHERE id IN (${ids.map(() => "?").join(",")})`,
+    ).bind(...ids).all();
+    for (const row of found.results || []) payloads.set(row.id, row.payload);
   }
-  const titleHits = picked.length;
-  if (picked.length < cap) {
-    const recent = await db.prepare(
-      `SELECT id, payload FROM jobs WHERE ${where} ORDER BY posted_at DESC LIMIT ?`,
-    ).bind(...scope, cap).all();
-    take(recent.results);
-  }
-  const jobs = picked.map((row) => {
-    const job = JSON.parse(row.payload);
+  const jobs = order.filter((id) => payloads.has(id)).map((id) => {
+    const job = JSON.parse(payloads.get(id));
     if (!Array.isArray(job.embedding) || job.embedding.length !== 384) {
       job.embedding = embed(`${job.title || ""} ${job.description_text || ""} ${job.department || ""}`);
     }
     if (job.description_text) job.description_text = String(job.description_text).slice(0, 4000);
     return job;
   });
-  return { jobs, title_matches: titleHits };
+  return { jobs, title_matches: titleMatches };
 }
 
 export async function jobById(db, id) {

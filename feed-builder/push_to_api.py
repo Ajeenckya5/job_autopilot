@@ -32,7 +32,7 @@ def jobs_from_payload(raw: bytes | str) -> dict[str, dict]:
 def load_dir(path: Path) -> dict[str, dict]:
     jobs: dict[str, dict] = {}
     for shard in sorted(path.glob("*.json")):
-        if shard.name == "manifest.json":
+        if shard.name in {"manifest.json", "lexicon.json"}:
             continue
         jobs.update(jobs_from_payload(shard.read_bytes()))
     return jobs
@@ -45,7 +45,7 @@ def load_committed(folder: str = "feeds") -> dict[str, dict]:
     )
     jobs: dict[str, dict] = {}
     for name in listing.stdout.split():
-        if not name.endswith(".json") or name.endswith("manifest.json"):
+        if not name.endswith(".json") or name.endswith("manifest.json") or name.endswith("lexicon.json"):
             continue
         shown = subprocess.run(["git", "show", f"HEAD:{name}"], capture_output=True, check=False)
         if shown.returncode == 0:

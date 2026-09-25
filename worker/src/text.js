@@ -1,3 +1,21 @@
+/**
+ * Text as search stores it: accents dropped, lowercase, a one-letter prefix joined ("e-discovery"
+ * is "ediscovery"), other hyphens and slashes as spaces, one space between words. The site folds
+ * search terms the same way (site/src/logic/search.js), so a posting and a resume spell alike.
+ */
+export function searchable(text) {
+  return String(text || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\b([a-z0-9])-(?=[a-z0-9])/g, "$1")
+    .replace(/[/\-_'’]/g, " ")
+    .replace(/\.(?![a-z0-9])/g, " ")
+    .replace(/[^a-z0-9+#.& ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
 
 function decodeEntities(text) {

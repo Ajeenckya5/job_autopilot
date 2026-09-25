@@ -5,6 +5,8 @@ const SHELL = ["./", "./index.html", "./manifest.webmanifest"];
 function shellRequest(url) {
   const path = new URL(url).pathname;
   if (path.includes("/feeds/")) return false;
+  // The learned vocabulary is large and only needed online, when there is something to search.
+  if (/\/lexicon[-.]/.test(path)) return false;
   return /\/(?:index\.html|manifest\.webmanifest|sw\.js)$/.test(path) || /\.(?:js|css|svg|png|webmanifest)$/.test(path);
 }
 
