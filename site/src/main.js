@@ -526,6 +526,46 @@ function paintAi(data) {
   }
 }
 
+const LAST_SEARCH = "jobAutopilotLastSearch";
+
+function rememberSearch(summary) {
+  try {
+    localStorage.setItem(LAST_SEARCH, JSON.stringify({ ...summary, at: new Date().toISOString() }));
+  } catch (_) {
+    /* the list still works without the summary */
+  }
+}
+
+function lastSearch() {
+  try {
+    return JSON.parse(localStorage.getItem(LAST_SEARCH) || "null");
+  } catch (_) {
+    return null;
+  }
+}
+
+/** A short list should say where the rest went, in numbers, with nothing hidden. */
+function paintWhyNot(selected) {
+  const box = $("whyNot");
+  const list = $("whyNotList");
+  if (!box || !list) return;
+  list.innerHTML = "";
+  const lines = [];
+  const last = lastSearch();
+  if (last && last.looked) {
+    const titled = last.titleMatches ? `, ${last.titleMatches} with your role in the title` : "";
+    lines.push(`The last search looked at ${plural(last.looked, "role")}${titled}.`);
+    if (last.outside > 0) lines.push(`${last.outside} outside your places`);
+  }
+  (selected.breakdown || []).forEach((row) => lines.push(row.text));
+  lines.forEach((text) => {
+    const li = document.createElement("li");
+    li.textContent = text;
+    list.appendChild(li);
+  });
+  box.hidden = lines.length < 2;
+}
+
 function paint() {
   const data = store();
   if (!data) {
@@ -547,6 +587,7 @@ function paint() {
     live.textContent = `Found ${plural(visible.length, "role")}.`;
   }
   paintFamily(data);
+  paintWhyNot(selected);
   const ul = $("jobList");
   ul.innerHTML = "";
   const extra = selected.reasons.find((reason) => reason.id === "widen-more");
@@ -828,7 +869,14 @@ async function searchNow() {
     } catch (_) {
       government = [];
     }
-    const pool = searchPool(candidates.concat(government), profile).slice(0, 300);
+    const combined = candidates.concat(government);
+    const placed = searchPool(combined, profile);
+    const pool = placed.slice(0, 300);
+    rememberSearch({
+      looked: combined.length,
+      titleMatches: candidates.titleMatches || 0,
+      outside: combined.length - placed.length,
+    });
     const ranked = await rankInWorker(pool, rankingProfile);
     const collapsed = collapsePostings(ranked).map((job) => {
       const old = loadJobs().find((row) => row.id === job.id);
