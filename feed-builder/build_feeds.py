@@ -23,6 +23,7 @@ from pathlib import Path
 
 import yaml
 
+import lexicon
 from extract import countries_in, iso_utc, salary_from, seniority_of, sponsorship_of, within_days, years_required
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -157,6 +158,9 @@ def job_record(**fields) -> dict:
         "seniority": seniority_of(title),
         "sponsorship": sponsorship_of(f"{title} {description}"),
         "description_text": description,
+        # Full text for this build only: repeated employer text is cut before the feed keeps 1,500
+        # characters (trim_boilerplate), and the vocabulary is learned from it. Never written out.
+        "_full": full_text,
     }
 
 
@@ -416,21 +420,78 @@ def from_usajobs(limit: int) -> list[dict]:
 
 
 def shard_name(job: dict) -> str:
+    """Shards split the feed by place only; no job is sorted into a fixed family."""
     country = (job.get("locations") or [{}])[0].get("country") or "other"
     slug = re.sub(r"[^a-z0-9]+", "-", country.lower()).strip("-") or "other"
     if slug not in {"united-states", "remote"}:
         slug = "other"
-    family = "general"
-    blob = f"{job.get('title') or ''} {job.get('department') or ''}".lower()
-    if re.search(r"nurse|clinic|health|patient|pharma", blob):
-        family = "health"
-    elif re.search(r"driver|warehouse|logistic|supply", blob):
-        family = "logistics"
-    elif re.search(r"retail|store|sales associate|cashier", blob):
-        family = "retail"
-    elif re.search(r"engineer|software|data|design|product", blob):
-        family = "software"
-    return f"{slug}-{family}.json"
+    return f"{slug}.json"
+
+
+SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"“])|\s+[•·]\s+|\s{2,}")
+TITLE_HEAD = re.compile(r"\s[-–—|]\s|[,(\[/:]")
+DESCRIPTION_LIMIT = 1500
+
+
+def _sentences(text: str) -> list[str]:
+    return [part.strip() for part in SENTENCE.split(text or "") if part.strip()]
+
+
+def _sentence_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def _title_head(title: str) -> str:
+    words = re.findall(r"[a-z0-9+#]+", TITLE_HEAD.split(title or "")[0].lower())
+    return words[-1] if words else ""
+
+
+def trim_boilerplate(jobs: list[dict]) -> list[str]:
+    """Cut text an employer repeats across different kinds of job (its "About us", benefits and
+    equal-opportunity paragraphs) and sentences three or more employers share word for word, so
+    the 1,500 characters the feed keeps describe the job. Returns each job's cleaned full text.
+
+    "Kinds of job" are the last words of the titles ("accountant", "engineer"), so a paralegal
+    posting in two cities keeps its duties. A posting left with under 400 characters keeps its text.
+    """
+    by_company: dict[str, list[int]] = {}
+    shared: dict[str, set] = {}
+    for index, job in enumerate(jobs):
+        company = clean_company(job.get("company")).lower()
+        by_company.setdefault(company, []).append(index)
+        for key in {_sentence_key(part) for part in _sentences(job.get("_full") or "")}:
+            if len(key) >= 40:
+                seen = shared.setdefault(key, set())
+                if len(seen) < 3:
+                    seen.add(company)
+    cleaned = [""] * len(jobs)
+    for company, indexes in by_company.items():
+        heads_of: dict[str, set] = {}
+        heads = set()
+        for index in indexes:
+            head = _title_head(jobs[index].get("title") or "")
+            heads.add(head)
+            for key in {_sentence_key(part) for part in _sentences(jobs[index].get("_full") or "")}:
+                heads_of.setdefault(key, set()).add(head)
+        for index in indexes:
+            full = jobs[index].get("_full") or jobs[index].get("description_text") or ""
+            keep = []
+            for part in _sentences(full):
+                key = _sentence_key(part)
+                spread = heads_of.get(key, set())
+                repeated = len(heads) >= 2 and len(spread) >= 2 and len(spread) >= 0.5 * len(heads)
+                common = len(key) >= 40 and len(shared.get(key, ())) >= 3
+                if not (repeated or common):
+                    keep.append(part)
+            text = " ".join(keep)
+            cleaned[index] = text if len(text) >= 400 else full
+    for job, text in zip(jobs, cleaned):
+        title = job.get("title") or ""
+        job["description_text"] = text[:DESCRIPTION_LIMIT]
+        job["years_required"] = years_required(title, text[:4000])
+        job["sponsorship"] = sponsorship_of(f"{title} {text}")
+        job.pop("_full", None)
+    return cleaned
 
 
 def load_catalog() -> list[dict]:
@@ -503,7 +564,11 @@ def build(limit_companies: int, per_company: int, workers: int = 12) -> dict:
         print("coverage gate failed: " + "; ".join(problems))
         print(f"jobs {len(jobs)} errors {len(errors)}")
         raise SystemExit(1)
-    return write_feed(jobs, errors, OUT)
+    texts = trim_boilerplate(jobs)
+    manifest = write_feed(jobs, errors, OUT)
+    learned = lexicon.write(jobs, OUT / "lexicon.json", texts)
+    print(f"lexicon: {len(learned['phrases'])} skill phrases, {len(learned['titles'])} titles with related titles", flush=True)
+    return manifest
 
 
 def pieces(rows: list[dict]) -> list[list[dict]]:
@@ -520,7 +585,7 @@ def write_feed(jobs: list[dict], errors: list[str], out: Path) -> dict:
     for job in jobs:
         buckets.setdefault(shard_name(job), []).append(job)
     for old in out.glob("*.json"):
-        if old.name != "manifest.json":
+        if old.name not in {"manifest.json", "lexicon.json"}:
             old.unlink()
     for old in out.glob("*.json.gz"):
         old.unlink()
@@ -581,7 +646,10 @@ def augment_directory(source: Path, out: Path) -> dict:
     if problems:
         print("coverage gate failed: " + "; ".join(problems))
         raise SystemExit(1)
-    return write_feed(jobs, errors, out)
+    texts = trim_boilerplate(jobs)
+    manifest = write_feed(jobs, errors, out)
+    lexicon.write(jobs, out / "lexicon.json", texts)
+    return manifest
 
 
 def print_audit(jobs: list[dict], generated_at: str) -> None:
@@ -630,6 +698,14 @@ def audit_directory(path: Path) -> int:
         jobs.extend(data["jobs"] if isinstance(data, dict) else data)
     print_audit(jobs, manifest.get("generated_at") or "")
     problems = coverage_problems(jobs)
+    learned = path / "lexicon.json"
+    if not learned.exists():
+        problems.append("lexicon.json is missing")
+    else:
+        data = json.loads(learned.read_text())
+        print("lexicon phrases", len(data.get("phrases") or {}), "titles", len(data.get("titles") or {}))
+        if len(data.get("phrases") or {}) < 1000:
+            problems.append("lexicon has under 1000 skill phrases")
     if problems:
         print("coverage gate failed: " + "; ".join(problems))
         return 1

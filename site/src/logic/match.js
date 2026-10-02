@@ -1,19 +1,21 @@
-import taxonomy from "../data/taxonomy.json";
-import { allSkillsIn } from "./resume.js";
-import { clampLookback, cosine, embed } from "./text.js";
+import { getLexicon, isFiller, isTitlePhrase, phraseIdf, phrasesIn, phraseSet, relatedTitles, titleCore, titleIdf, titleWords } from "./lexicon.js";
+import { displayForm, titlesFromResume } from "./resume.js";
+import { clampLookback, cosine, embed, fnv } from "./text.js";
 
-const ROLES = taxonomy.roles;
-const BY_ID = new Map(ROLES.map((role) => [role.id, role]));
-const ROLE_EMBED = new Map();
+/**
+ * Matching for any field. Nothing here knows what a nurse or an engineer is:
+ * - role fit compares a posting's title with the titles the person typed and has held, word by word,
+ *   rarer title words counting for more, plus titles whose postings read alike (from the lexicon);
+ * - skill fit is how many of the posting's most telling phrases the resume also uses, rarer phrases
+ *   counting for more.
+ */
+
 const JOB_EMBED = new WeakMap();
-
-const PHRASES = ROLES.flatMap((role) => {
-  const rows = [{ phrase: role.title.toLowerCase(), id: role.id }];
-  (role.synonyms || []).forEach((synonym) => rows.push({ phrase: synonym.toLowerCase(), id: role.id }));
-  return rows;
-}).sort((a, b) => b.phrase.length - a.phrase.length);
-
-export const TAXONOMY_ATTRIBUTION = taxonomy.attribution;
+const JOB_UNITS = new WeakMap();
+const SKILLS = new WeakMap();
+const KEY_PHRASES = 12;
+const PROFILE_MIN = 6;
+const RELATE_MIN = 4;
 
 export function yearsFromResume(text, now = Date.now()) {
   const year = new Date(now).getUTCFullYear();
@@ -48,21 +50,6 @@ export function seniorityOf(text) {
   return "mid";
 }
 
-function escapePhrase(phrase) {
-  return phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-}
-
-function hasPhrase(title, phrase) {
-  if (!phrase) return false;
-  return new RegExp(`(?:^|[^a-z0-9+])${escapePhrase(phrase)}(?=$|[^a-z0-9+])`, "i").test(String(title || ""));
-}
-
-export function roleIdForTitle(title) {
-  const blob = String(title || "");
-  const hit = PHRASES.find((row) => hasPhrase(blob, row.phrase));
-  return hit ? hit.id : "";
-}
-
 function clampWeight(weight) {
   return Math.max(0, Math.min(1, weight));
 }
@@ -74,129 +61,70 @@ function normalize(vector) {
   return vector.map((value) => value / norm);
 }
 
-function meanVectors(vectors) {
-  if (!vectors.length) return null;
-  const out = new Array(vectors[0].length).fill(0);
-  vectors.forEach((vector) => {
-    for (let i = 0; i < out.length; i += 1) out[i] += vector[i];
-  });
-  for (let i = 0; i < out.length; i += 1) out[i] /= vectors.length;
-  return normalize(out);
+/** "ml engineer" → "ML Engineer", "fp&a analyst" → "FP&A Analyst": two-letter title words are initials. */
+function titleCase(text) {
+  return String(text || "").split(" ").map((word) => {
+    if ((word.length === 2 && !isFiller(word)) || (word.includes("&") && word.length <= 5)) return word.toUpperCase();
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }).join(" ");
 }
 
-function roleEmbedding(role) {
-  if (ROLE_EMBED.has(role.id)) return ROLE_EMBED.get(role.id);
-  const vector = embed(`${role.title} ${(role.synonyms || []).join(" ")}`);
-  ROLE_EMBED.set(role.id, vector);
-  return vector;
+/** A title as weighted words: "Senior Staff Accountant" → senior, staff, accountant, rarer words weighing more. */
+function roleSpec(label, kind, weight, id) {
+  const words = [...new Set(titleCore(label))].filter((word) => !isFiller(word));
+  // The last word says what the job is ("scientist" in "data scientist"), so it counts twice.
+  const weights = words.map((word, index) => titleIdf(word) * (index === words.length - 1 ? 2 : 1));
+  const total = weights.reduce((sum, value) => sum + value, 0);
+  return { id: id || words.join(" "), label: String(label || "").trim(), kind, weight, words, weights, total };
 }
 
-function consider(map, id, weight, kind, hidden, nudges) {
-  if (!id || hidden.has(id)) return;
-  const role = BY_ID.get(id);
-  if (!role) return;
-  let nudged = clampWeight(weight + (nudges[id] || 0));
-  if (kind === "adjacent") nudged = Math.min(nudged, 0.75);
-  const prev = map.get(id);
-  if (!prev || nudged > prev.weight) {
-    map.set(id, { id, weight: nudged, kind, role });
-    return;
-  }
-  if (nudged === prev.weight && kind === "target") prev.kind = "target";
+function relatedWeight(similarity) {
+  return clampWeight(0.5 + 0.6 * (similarity - 0.3));
 }
 
-function idsInText(text) {
-  const found = [];
-  const seen = new Set();
-  PHRASES.forEach((row) => {
-    if (seen.has(row.id)) return;
-    if (hasPhrase(text, row.phrase)) {
-      seen.add(row.id);
-      found.push(row.id);
-    }
-  });
-  return found;
-}
-
-export function rolesMentioned(text) {
-  return idsInText(text).map((id) => BY_ID.get(id)?.title).filter(Boolean);
-}
-
+/**
+ * The titles a search looks for: what the person typed (weight 1), titles on their resume (0.9),
+ * and titles whose postings read like those (0.5 to 0.8). Hidden ones and nudges from feedback apply.
+ */
 export function familyMap(profile) {
-  const hidden = new Set(profile.hidden_roles || []);
-  const nudges = (profile.feedback && profile.feedback.roleNudges) || {};
+  const source = profile || {};
+  const hidden = new Set([...(source.hidden_roles || []), ...(source.hidden_phrases || [])].map((value) => String(value).toLowerCase()));
+  const nudges = (source.feedback && source.feedback.roleNudges) || {};
   const map = new Map();
-  const targets = [];
-  (profile.roles || []).forEach((role) => {
-    idsInText(role).forEach((id) => {
-      if (!targets.includes(id)) targets.push(id);
+  const consider = (spec) => {
+    if (!spec.words.length || hidden.has(spec.id) || hidden.has(spec.label.toLowerCase())) return;
+    const nudged = { ...spec, weight: clampWeight(spec.weight + (nudges[spec.id] || 0)) };
+    if (spec.kind === "related") nudged.weight = Math.min(nudged.weight, 0.85);
+    const prev = map.get(spec.id);
+    if (!prev || nudged.weight > prev.weight) map.set(spec.id, nudged);
+  };
+  const typed = (source.roles || []).map((role) => roleSpec(role, "target", 1));
+  const held = (Array.isArray(source.titles) && source.titles.length ? source.titles : titlesFromResume(source.resume_text || ""))
+    .map((title) => roleSpec(title, "resume", 0.9));
+  typed.forEach(consider);
+  held.forEach(consider);
+  [...typed, ...held].forEach((spec) => {
+    const scale = spec.kind === "target" ? 1 : 0.9;
+    relatedTitles(spec.label).forEach(({ term, weight }) => {
+      consider(roleSpec(term, "related", relatedWeight(weight) * scale, term));
     });
-  });
-  targets.forEach((id) => {
-    consider(map, id, 1, "target", hidden, nudges);
-    (BY_ID.get(id).adjacent || []).forEach((adj) => consider(map, adj.id, adj.weight, "adjacent", hidden, nudges));
-  });
-  const past = []
-    .concat(Array.isArray(profile.titles) ? profile.titles : [])
-    .concat(profile.resume_text || "")
-    .join("\n");
-  idsInText(past).forEach((id) => {
-    if (map.get(id)?.kind === "target") return;
-    consider(map, id, 0.9, "resume", hidden, nudges);
-    (BY_ID.get(id).adjacent || []).forEach((adj) => consider(map, adj.id, adj.weight * 0.9, "adjacent", hidden, nudges));
   });
   return map;
 }
 
-function compiledPhrase(phrase, weight, kind, id, title) {
-  return {
-    phrase,
-    weight,
-    kind,
-    id,
-    title,
-    re: new RegExp(`(?:^|[^a-z0-9+])${escapePhrase(phrase)}(?=$|[^a-z0-9+])`, "i"),
-  };
-}
-
-function phraseRows(family, hiddenPhrases) {
-  const rows = [];
-  family.forEach((entry) => {
-    rows.push(compiledPhrase(entry.role.title.toLowerCase(), entry.weight, entry.kind, entry.id, entry.role.title));
-    const synonymWeight = Math.min(entry.weight, 0.95);
-    const synonymKind = entry.kind === "target" || entry.kind === "resume" ? "synonym" : entry.kind;
-    (entry.role.synonyms || []).forEach((synonym) => {
-      const phrase = synonym.toLowerCase();
-      if (hiddenPhrases.has(phrase)) return;
-      rows.push(compiledPhrase(phrase, synonymWeight, synonymKind, entry.id, entry.role.title));
-    });
-  });
-  rows.sort((a, b) => b.phrase.length - a.phrase.length || b.weight - a.weight);
-  return rows;
-}
-
+/** Related titles the search adds, as chips the person can remove. */
 export function familyChips(profile) {
-  const family = familyMap(profile || {});
-  const hiddenPhrases = new Set((profile.hidden_phrases || []).map((phrase) => String(phrase).toLowerCase()));
-  const typed = new Set((profile.roles || []).map((role) => String(role).toLowerCase()));
   const chips = [];
-  const seen = new Set();
-  family.forEach((entry) => {
-    if (entry.kind === "target") {
-      (entry.role.synonyms || []).forEach((synonym) => {
-        const label = synonym.toLowerCase();
-        if (typed.has(label) || hiddenPhrases.has(label) || seen.has(label)) return;
-        seen.add(label);
-        chips.push({ key: `syn:${entry.id}:${label}`, id: entry.id, label: synonym, kind: "synonym" });
-      });
-      return;
-    }
-    const label = entry.role.title.toLowerCase();
-    if (hiddenPhrases.has(label) || seen.has(label)) return;
-    seen.add(label);
-    chips.push({ key: `role:${entry.id}`, id: entry.id, label: entry.role.title, kind: entry.kind });
+  familyMap(profile || {}).forEach((entry) => {
+    if (entry.kind !== "related") return;
+    chips.push({ key: `role:${entry.id}`, id: entry.id, label: titleCase(entry.label), kind: "related", weight: entry.weight });
   });
-  return chips.sort((a, b) => a.label.localeCompare(b.label));
+  return chips.sort((a, b) => b.weight - a.weight || a.label.localeCompare(b.label)).slice(0, 10);
+}
+
+/** Titles the person has held, read from the resume. */
+export function rolesMentioned(text) {
+  return titlesFromResume(text);
 }
 
 function applyFeedback(mixed, profile) {
@@ -216,25 +144,36 @@ function profileVector(profile, family) {
   if (Array.isArray(profile.vector) && profile.vector.length === 384) {
     return applyFeedback(profile.vector.map((value) => Number(value) || 0), profile);
   }
-  const resume = embed(profile.resume_text || (profile.roles || []).join(" "));
-  const targets = [];
+  const titles = [];
   family.forEach((entry) => {
-    if (entry.kind === "target") targets.push(roleEmbedding(entry.role));
+    if (entry.kind !== "related") titles.push(entry.label);
   });
-  const mean = meanVectors(targets) || resume;
-  const mixed = normalize(resume.map((value, index) => 0.5 * value + 0.5 * mean[index]));
+  const resume = embed(profile.resume_text || titles.join(" "));
+  const target = embed(titles.join(" ") || profile.resume_text || "");
+  const mixed = normalize(resume.map((value, index) => 0.5 * value + 0.5 * target[index]));
   return applyFeedback(mixed, profile);
+}
+
+/** Every phrase the resume and skill list use, including shorter ones inside longer ones. */
+export function resumeTerms(profile) {
+  const source = profile || {};
+  const terms = new Set(Array.isArray(source.resume_terms) ? source.resume_terms : []);
+  phraseSet(source.resume_text || "").forEach((phrase) => terms.add(phrase));
+  (source.skills || []).forEach((skill) => {
+    const words = titleWords(skill);
+    if (words.length) terms.add(words.join(" "));
+    phraseSet(skill).forEach((phrase) => terms.add(phrase));
+  });
+  return terms;
 }
 
 export function prepareProfile(profile, now = Date.now()) {
   const source = profile || {};
   const family = familyMap(source);
-  const hiddenPhrases = new Set((source.hidden_phrases || []).map((phrase) => String(phrase).toLowerCase()));
-  const skills = new Set([...(source.skills || []), ...allSkillsIn(source.resume_text || "")]);
   return {
     family,
-    phrases: phraseRows(family, hiddenPhrases),
-    skills,
+    specs: [...family.values()],
+    terms: resumeTerms(source),
     years: source.years == null || source.years === ""
       ? yearsFromResume(source.resume_text || "", now)
       : Number(source.years) || 0,
@@ -247,73 +186,251 @@ export function prepareProfile(profile, now = Date.now()) {
 const PREFERRED = /preferred|nice to have|nice-to-have|plus|bonus|desired/;
 const REQUIRED = /required|must have|must |minimum qualification|minimum requirements|basic qualification/;
 
+function unitOf(phrase, required, first) {
+  const key = titleWords(phrase).join(" ");
+  return { phrase: key, idf: phraseIdf(key) || 4, required, count: 1, first };
+}
+
+/**
+ * The phrases a posting uses that postings treat as skills, each marked required or preferred by
+ * the section it first appears in.
+ */
 export function splitSkills(text) {
-  const required = new Set();
-  const preferred = new Set();
+  const units = new Map();
   let mode = "required";
+  let offset = 0;
   String(text || "").split(/\n+|(?<=\.)\s+/).forEach((part) => {
     const low = part.toLowerCase();
     if (PREFERRED.test(low) && !REQUIRED.test(low)) mode = "preferred";
     else if (REQUIRED.test(low)) mode = "required";
-    allSkillsIn(part).forEach((skill) => (mode === "preferred" ? preferred : required).add(skill));
+    phrasesIn(part).forEach((row) => {
+      const prev = units.get(row.phrase);
+      if (prev) {
+        prev.count += row.count;
+        prev.required = prev.required || mode === "required";
+      } else {
+        units.set(row.phrase, { phrase: row.phrase, idf: row.idf, required: mode === "required", count: row.count, first: offset + row.first });
+      }
+    });
+    offset += part.length;
   });
-  required.forEach((skill) => preferred.delete(skill));
-  return { required: [...required], preferred: [...preferred] };
-}
-
-function jobSkills(job) {
-  if (Array.isArray(job.skills_required) || Array.isArray(job.skills_preferred)) {
-    return {
-      required: job.skills_required || [],
-      preferred: job.skills_preferred || [],
-    };
-  }
-  return splitSkills(`${job.title || ""} ${job.description_text || ""}`);
-}
-
-function skillFit(job, prepared) {
-  const skills = jobSkills(job);
-  const matched = [];
-  const missing = [];
-  skills.required.forEach((skill) => (prepared.skills.has(skill) ? matched.push(skill) : missing.push(skill)));
-  const preferredHits = skills.preferred.filter((skill) => prepared.skills.has(skill)).length;
-  const denom = skills.required.length + 0.5 * skills.preferred.length;
-  const numer = matched.length + 0.5 * preferredHits;
+  const rows = [...units.values()];
   return {
-    fit: denom ? numer / denom : 0.5,
-    matched: matched.slice(0, 3),
-    missing: missing.slice(0, 3),
-    requiredMatched: matched.length,
+    required: rows.filter((row) => row.required).map((row) => row.phrase),
+    preferred: rows.filter((row) => !row.required).map((row) => row.phrase),
+    units: rows,
   };
 }
 
-function titleHasWords(title, phrase) {
-  return phrase.split(/\s+/).filter(Boolean).every((word) => hasPhrase(title, word));
+/** Every skill phrase a posting uses, minus words from the employer's own name ("Reddit" at Reddit). */
+function jobUnits(job) {
+  const cached = JOB_UNITS.get(job);
+  if (cached && cached.lexicon === getLexicon()) return cached.units;
+  let units;
+  if (Array.isArray(job.skills_required) || Array.isArray(job.skills_preferred)) {
+    units = (job.skills_required || []).map((skill, i) => unitOf(skill, true, i))
+      .concat((job.skills_preferred || []).map((skill, i) => unitOf(skill, false, 100 + i)));
+  } else {
+    units = splitSkills(`${job.title || ""}\n${job.description_text || ""}`).units;
+  }
+  const own = new Set(titleWords(job.company).filter((word) => !isFiller(word)));
+  const out = units
+    .filter((unit) => unit.phrase && !unit.phrase.split(" ").some((word) => own.has(word)))
+    .map((unit) => ({ ...unit, base: unit.idf * (1 + Math.log(unit.count)) * (unit.required ? 1 : 0.5), title: isTitlePhrase(unit.phrase) }));
+  JOB_UNITS.set(job, { lexicon: getLexicon(), units: out });
+  return out;
+}
+
+/**
+ * What postings for the person's own titles have in common: for each phrase, the share of those
+ * postings that use it. A phrase most of them share ("pytorch" for machine learning engineers) is a
+ * skill of the role; one a single employer uses ("orbit" at a space company) is that employer's world.
+ */
+function roleProfile(rows, terms) {
+  const chosen = rows.filter((row) => row.role.weight >= 0.85 && (row.role.kind === "target" || row.role.kind === "resume"));
+  if (chosen.length < PROFILE_MIN) {
+    // Few postings carry the person's titles: lean on the postings that share most of the resume.
+    const picked = new Set(chosen);
+    rows
+      .filter((row) => !picked.has(row))
+      .map((row) => ({ row, overlap: resumeOverlap(row.job, terms) }))
+      .filter((item) => item.overlap > 0)
+      .sort((a, b) => b.overlap - a.overlap)
+      .slice(0, PROFILE_MIN - chosen.length)
+      .forEach((item) => chosen.push(item.row));
+  }
+  const counts = new Map();
+  chosen.forEach((row) => {
+    jobUnits(row.job).forEach((unit) => counts.set(unit.phrase, (counts.get(unit.phrase) || 0) + 1));
+  });
+  return { counts, size: chosen.length };
+}
+
+/** How much of a posting's vocabulary the resume shares, rarer phrases counting for more. */
+function resumeOverlap(job, terms) {
+  let shared = 0;
+  let total = 0;
+  jobUnits(job).forEach((unit) => {
+    total += unit.idf;
+    if (terms.has(unit.phrase)) shared += unit.idf;
+  });
+  return total ? shared / Math.sqrt(total) : 0;
+}
+
+function typicality(phrase, profile) {
+  if (!profile || profile.size < 3) return 1;
+  return ((profile.counts.get(phrase) || 0) + 0.5) / (profile.size + 1);
+}
+
+/** 1 when the resume uses the phrase; partly when it uses a part of it ("python" of "python sdk"). */
+function credit(unit, terms) {
+  if (terms.has(unit.phrase)) return 1;
+  const words = unit.phrase.split(" ");
+  if (words.length < 2) return 0;
+  let best = 0;
+  for (let n = words.length - 1; n >= 1; n -= 1) {
+    for (let i = 0; i + n <= words.length; i += 1) {
+      const part = words.slice(i, i + n).join(" ");
+      if (terms.has(part)) best = Math.max(best, Math.min(1, (phraseIdf(part) || 0) / unit.idf));
+    }
+  }
+  return best;
+}
+
+// A resume rarely repeats a posting word for word: sharing this share of the posting's most
+// telling phrases counts as a full skill match.
+const FULL_SHARE = 0.5;
+
+const LABELS = new WeakMap();
+
+/** The posting's own spelling of a phrase, remembered so a re-rank does not search the text again. */
+function labelFor(job, phrase) {
+  let cache = LABELS.get(job);
+  if (!cache) {
+    const text = `${job.title || ""}\n${job.description_text || ""}`;
+    cache = { text, lower: text.toLowerCase(), labels: new Map() };
+    LABELS.set(job, cache);
+  }
+  if (!cache.labels.has(phrase)) cache.labels.set(phrase, displayForm(phrase, cache.text, cache.lower));
+  return cache.labels.get(phrase);
+}
+
+function skillFit(job, prepared, profile) {
+  const all = jobUnits(job);
+  const weights = new Float64Array(all.length);
+  const order = new Array(all.length);
+  for (let i = 0; i < all.length; i += 1) {
+    weights[i] = all[i].base * typicality(all[i].phrase, profile);
+    order[i] = i;
+  }
+  if (all.length > KEY_PHRASES) order.sort((a, b) => weights[b] - weights[a] || all[a].first - all[b].first);
+  const units = [];
+  for (let k = 0; k < Math.min(KEY_PHRASES, order.length); k += 1) units.push({ unit: all[order[k]], weight: weights[order[k]] });
+  if (!units.length) return { fit: 0.5, share: 0, matched: [], missing: [], requiredMatched: 0 };
+  let have = 0;
+  let want = 0;
+  const matched = [];
+  const missing = [];
+  units.forEach(({ unit, weight }) => {
+    const got = credit(unit, prepared.terms);
+    // A job title in the text counts when the resume shares it; role fit already judges titles, so
+    // one the resume lacks is not also a missing skill. Titles are never listed as skills.
+    if (unit.title) {
+      if (got > 0) {
+        have += weight * got;
+        want += weight;
+      }
+      return;
+    }
+    have += weight * got;
+    want += weight;
+    if (got >= 0.99) matched.push({ unit, weight });
+    // Missing means most postings for the role ask for it, not one employer's own world.
+    else if (got === 0 && unit.required && (!profile || profile.size < 3 || typicality(unit.phrase, profile) >= 0.2)) missing.push({ unit, weight });
+  });
+  const share = want ? have / want : 0;
+  const label = (unit) => labelFor(job, unit.phrase);
+  const top3 = (rows) => rows.sort((a, b) => b.weight - a.weight).slice(0, 3).map((row) => label(row.unit));
+  return {
+    fit: Math.min(1, share / FULL_SHARE),
+    share,
+    matched: top3(matched),
+    missing: top3(missing),
+    requiredMatched: matched.filter((row) => row.unit.required).length,
+  };
+}
+
+/** How much of a title's weight the posting's title carries: 1 when every word is there. */
+function coverage(spec, words) {
+  if (!spec.total) return 0;
+  let got = 0;
+  spec.words.forEach((word, index) => {
+    if (words.has(word)) got += spec.weights[index];
+  });
+  return got / spec.total;
 }
 
 function roleFit(job, prepared) {
-  const title = String(job.title || "");
-  let best = null;
-  for (let i = 0; i < prepared.phrases.length; i += 1) {
-    const row = prepared.phrases[i];
-    if (best && row.phrase.length < best.phrase.length) break;
-    if (!row.re.test(title)) continue;
-    if (!best || row.phrase.length > best.phrase.length || row.weight > best.weight) best = row;
-  }
-  if (!best || best.kind === "adjacent") {
-    prepared.phrases.forEach((row) => {
-      if (row.kind !== "target" && row.kind !== "synonym") return;
-      if (row.phrase.split(/\s+/).length < 2) return;
-      if (!titleHasWords(title, row.phrase)) return;
-      if (!best || row.weight > best.weight) best = row;
+  const words = new Set(titleWords(job.title));
+  let best = { weight: 0, kind: "", title: "", id: "", phrase: "" };
+  prepared.specs.forEach((spec) => {
+    const share = coverage(spec, words);
+    let weight = 0;
+    let kind = spec.kind;
+    if (share >= 0.999) weight = spec.weight;
+    else if (spec.kind !== "related" && share > 0.3) {
+      // Part of a typed or held title: "Senior Accountant" for "Staff Accountant".
+      weight = spec.weight * 0.7 * ((share - 0.3) / 0.7);
+      kind = "partial";
+    }
+    if (weight > best.weight) best = { weight, kind, title: spec.label, id: spec.id, phrase: spec.words.join(" ") };
+  });
+  return best;
+}
+
+/**
+ * Titles related to the person's through this search's own postings: when several postings with
+ * one title ("manufacturing engineer") ask for about as much of the resume as postings with the
+ * person's titles do, that title is related, for this person, whatever the field. It helps where
+ * the lexicon has too few postings to relate titles (an industrial engineer and manufacturing roles).
+ */
+function relateBySkills(rows) {
+  const own = rows.filter((row) => row.role.weight >= 0.85 && (row.role.kind === "target" || row.role.kind === "resume"));
+  const shares = own.map((row) => row.skills.share).sort((a, b) => a - b);
+  // Needs enough postings with the person's own titles to know what they ask of this resume.
+  if (shares.length < RELATE_MIN) return;
+  const typical = shares[Math.floor(shares.length / 2)];
+  if (typical < 0.2) return;
+  const groups = new Map();
+  const terms = new Map();
+  const termOf = (title) => {
+    if (!terms.has(title)) {
+      const core = titleCore(title);
+      terms.set(title, core.length && isTitlePhrase(core[core.length - 1]) ? core.slice(-2).join(" ") : "");
+    }
+    return terms.get(title);
+  };
+  rows.forEach((row) => {
+    if (row.role.weight >= 0.85) return;
+    const term = termOf(String(row.job.title || ""));
+    if (!term) return;
+    const group = groups.get(term) || { total: 0, companies: new Set(), rows: [] };
+    group.total += row.skills.share;
+    group.companies.add(String(row.job.company || "").toLowerCase());
+    group.rows.push(row);
+    groups.set(term, group);
+  });
+  groups.forEach((group, term) => {
+    if (group.rows.length < 2 || group.companies.size < 2) return;
+    const closeness = group.total / group.rows.length / typical;
+    if (closeness < 0.7) return;
+    const weight = Math.min(0.7, 0.35 + 0.35 * Math.min(1, closeness));
+    group.rows.forEach((row) => {
+      if (weight <= row.role.weight) return;
+      row.role = { weight, kind: "related", title: term, id: term, phrase: term };
+      row.role.relation = relationLabel(row.role);
     });
-  }
-  if (best) return best;
-  if (job.role_id && prepared.family.has(job.role_id)) {
-    const entry = prepared.family.get(job.role_id);
-    return { weight: entry.weight, kind: entry.kind, title: entry.role.title, id: entry.id, phrase: entry.role.title };
-  }
-  return { weight: 0, kind: "", title: "", id: job.role_id || "", phrase: "" };
+  });
 }
 
 function experienceFit(have, required) {
@@ -344,8 +461,10 @@ const LEVEL_WORDS = { intern: "Intern or student role", junior: "Junior role", s
 
 function relationLabel(match) {
   if (!match || match.weight <= 0) return "";
-  if (match.kind === "target" || match.kind === "synonym") return "Your target";
-  return `Related: ${match.title}`;
+  if (match.kind === "target") return "Your target";
+  if (match.kind === "resume") return "Your past title";
+  if (match.kind === "partial") return `Similar title: ${titleCase(match.title)}`;
+  return `Related: ${titleCase(match.title)}`;
 }
 
 export function tierOf(score) {
@@ -381,15 +500,30 @@ export function scoreAll(jobs, profile, now = Date.now()) {
   const prepared = prepareProfile(profile, now);
   const roleCache = new Map();
   const rows = (jobs || []).map((job) => {
-    const key = `${job.role_id || ""}\n${job.title || ""}`;
+    const key = String(job.title || "");
     let role = roleCache.get(key);
     if (!role) {
       role = roleFit(job, prepared);
+      role.relation = relationLabel(role);
       roleCache.set(key, role);
     }
-    return { job, role, skills: skillFit(job, prepared) };
+    return { job, role };
   });
-  const external = Array.isArray(profile.vector) && profile.vector.length === 384;
+  const shared = roleProfile(rows, prepared.terms);
+  // Skill fit depends only on the resume's phrases and what the role's postings share, so a re-rank
+  // after hiding a related title reuses it.
+  const key = `${fnv([...prepared.terms].sort().join("|"))}:${shared.size}:${fnv([...shared.counts].map(([k, v]) => `${k}=${v}`).sort().join("|"))}:${getLexicon().docs}`;
+  rows.forEach((row) => {
+    const cached = SKILLS.get(row.job);
+    if (cached && cached.key === key) {
+      row.skills = cached.skills;
+      return;
+    }
+    row.skills = skillFit(row.job, prepared, shared);
+    SKILLS.set(row.job, { key, skills: row.skills });
+  });
+  relateBySkills(rows);
+  const external = Array.isArray(profile && profile.vector) && profile.vector.length === 384;
   const similarity = rows.map((row) => {
     if (!prepared.vector) return 0.5;
     const jobVector = external
@@ -398,13 +532,15 @@ export function scoreAll(jobs, profile, now = Date.now()) {
     if (!jobVector) return 0.5;
     return Math.max(0, Math.min(1, cosine(prepared.vector, jobVector)));
   });
-  const top = new Set(similarity.map((value, index) => [value, index]).sort((a, b) => b[0] - a[0]).slice(0, 500).map((row) => row[1]));
+  const sorted = Float64Array.from(similarity).sort();
+  const floor = sorted.length > 500 ? sorted[sorted.length - 500] : -Infinity;
   const ranked = rows.map((row, index) => {
-    const candidate = row.role.weight > 0 || row.skills.requiredMatched >= 3 || top.has(index);
+    const candidate = row.role.weight > 0 || row.skills.requiredMatched >= 3 || similarity[index] >= floor;
     const years = row.job.years_required == null ? null : Number(row.job.years_required);
     const exp = experienceFit(prepared.years, years);
     const fresh = freshness(row.job.posted_at, prepared.days, now);
-    const level = seniorityFit(row.job.title, prepared.years);
+    // A posting that states the years it wants has said its level; the title's words need not guess.
+    const level = years != null && Number.isFinite(years) ? Math.max(seniorityFit(row.job.title, prepared.years), 0.75) : seniorityFit(row.job.title, prepared.years);
     const raw = 100 * (0.35 * row.role.weight + 0.35 * row.skills.fit + 0.15 * exp + 0.1 * similarity[index] + 0.05 * fresh) * Math.sqrt(level);
     const score = Math.round(Math.max(0, Math.min(100, raw)));
     const tier = candidate ? tierOf(score) : "hide";
@@ -413,8 +549,8 @@ export function scoreAll(jobs, profile, now = Date.now()) {
       match_score: score,
       tier,
       bucket: tier === "hide" ? "possible" : "match",
-      relation: relationLabel(row.role),
-      role_id: row.role.id || row.job.role_id || "",
+      relation: row.role.relation,
+      role_id: row.role.id || "",
       why_matched: row.skills.matched,
       why_missing: row.skills.missing,
       experience_line: experienceLine(years, prepared.years)

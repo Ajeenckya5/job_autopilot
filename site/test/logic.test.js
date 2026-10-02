@@ -138,12 +138,13 @@ describe("scores", () => {
 });
 
 describe("skills, cards, and look-back", () => {
-  it("lists missing skills from the dictionary only", () => {
+  it("lists skills the postings taught it, never filler words", () => {
     const hits = skillHits("Python and PyTorch.", "Machine learning engineer. Python. Must know SQL and nursing.");
     expect(hits.matched).toContain("python");
     expect(hits.missing).toContain("sql");
-    expect(hits.missing).toContain("machine learning");
+    expect(hits.missing.join(" ")).toMatch(/machine learning/);
     expect(hits.missing).not.toContain("engineer");
+    expect(hits.missing).not.toContain("must");
   });
 
   it("merges the same posting across cities", () => {
@@ -224,7 +225,10 @@ describe("tracker", () => {
 
 describe("resume", () => {
   it("reads skills and refuses legacy doc files", async () => {
-    expect(skillsFromText("Python and PyTorch")).toContain("python");
+    expect(skillsFromText("Built ranking models with Python and PyTorch.")).toEqual(expect.arrayContaining(["Python", "PyTorch"]));
+    // A word said once in lowercase is not taken for a skill; a list the person wrote always is.
+    expect(skillsFromText("Wrote reports for the team.")).toEqual([]);
+    expect(skillsFromText("Skills: Westlaw, Clio, legal research")).toEqual(["Westlaw", "Clio", "legal research"]);
     const doc = { name: "cv.doc", text: async () => "" };
     await expect(readResumeFile(doc)).rejects.toThrow(/DOCX/);
   });
@@ -252,7 +256,7 @@ describe("resume", () => {
       },
     };
     const got = await readResumeFile(file, { pdfjs });
-    expect(got.skills).toContain("python");
+    expect(got.skills).toContain("Python");
   });
 });
 

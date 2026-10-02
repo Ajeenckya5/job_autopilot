@@ -155,7 +155,9 @@ describe("fixture blend", () => {
     expect(summary.evidence).toBeGreaterThanOrEqual(0.98);
     expect(data.personas).toHaveLength(60);
     expect(data.personas.every((persona) => persona.jobs.length === 50)).toBe(true);
-    const wins = summary.full.precision > summary.local.precision && summary.full.ndcg > summary.local.ndcg;
-    expect(FULL_MATCH_DEFAULT).toBe(wins);
+    // Full match sends the whole resume to the person's provider, so it stays their choice even
+    // where the AI ranking wins on these fixtures (it did in September 2026: 0.998 against 0.95).
+    expect(FULL_MATCH_DEFAULT).toBe(false);
+    expect(summary.local.precision).toBeGreaterThanOrEqual(0.9);
   }, 30000);
 });

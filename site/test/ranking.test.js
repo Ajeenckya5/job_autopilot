@@ -63,7 +63,7 @@ describe("labelled pairs", () => {
     expect(score("ml")).toBeGreaterThan(score("applied"));
     expect(score("ml")).toBeGreaterThan(score("de"));
     expect(score("ml")).toBeGreaterThan(score("arch"));
-    expect(ranked.find((item) => item.id === "applied").relation).toMatch(/Related/);
+    expect(ranked.find((item) => item.id === "applied").relation).toMatch(/Related|Similar title/);
   });
 
   it("does not put DevOps, Sales, or Systems in the top 10 for an ML resume", () => {

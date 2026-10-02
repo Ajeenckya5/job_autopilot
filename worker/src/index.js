@@ -39,10 +39,10 @@ export function createApp() {
     const url = new URL(c.req.url);
     const page = await searchJobs(c.env.DB, {
       countries: url.searchParams.getAll("country"),
-      families: url.searchParams.getAll("family"),
       since: url.searchParams.get("since") || "",
       limit: url.searchParams.get("limit") || "300",
       terms: url.searchParams.getAll("term"),
+      skills: url.searchParams.getAll("skill"),
     });
     return c.json(page);
   });

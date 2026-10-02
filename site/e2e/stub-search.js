@@ -35,7 +35,7 @@ export function sampleJobs() {
       family: "general",
       posted_at: posted,
       url: "https://example.com/jobs/as",
-      description_text: "experiments",
+      description_text: "Design experiments and ranking models in Python and PyTorch.",
       embedding: Array(384).fill(0.01),
     },
     {
@@ -55,6 +55,12 @@ export function sampleJobs() {
 }
 
 export async function stubSearch(page, jobs = sampleJobs()) {
+  // Nothing in a test reaches the live jobs API.
+  await page.route("**/v1/config**", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ api: true, sync: true, push: true, events: true, insights: true }),
+  }));
   await page.route("**/v1/search**", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",

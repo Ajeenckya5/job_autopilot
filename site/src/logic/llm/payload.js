@@ -1,4 +1,4 @@
-import { familyMap, rolesMentioned, seniorityOf, tierOf, yearsFromResume } from "../match.js";
+import { rolesMentioned, seniorityOf, tierOf, yearsFromResume } from "../match.js";
 import { allSkillsIn } from "../resume.js";
 import { fnv } from "../text.js";
 import { stripBoilerplate } from "./boilerplate.js";
@@ -25,27 +25,16 @@ export function stripPii(text, hints = {}) {
   return out.replace(EMAIL, "").replace(PHONE, "").replace(URL, "").replace(ADDRESS, "").replace(/\s+/g, " ").trim();
 }
 
+/** The field, in the person's own words: the first title they search for, else the latest they held. */
 function domainOf(profile) {
-  const counts = new Map();
-  familyMap(profile || {}).forEach((entry) => {
-    const domain = entry.role?.domain || "";
-    if (!domain) return;
-    counts.set(domain, (counts.get(domain) || 0) + entry.weight);
-  });
-  let best = "";
-  let score = -1;
-  counts.forEach((value, key) => {
-    if (value > score) {
-      score = value;
-      best = key;
-    }
-  });
-  return best;
+  const typed = (profile.roles || []).find(Boolean);
+  if (typed) return String(typed);
+  return (profile.titles || [])[0] || rolesMentioned(profile.resume_text || "")[0] || "";
 }
 
 export function structuredProfile(profile, { fullText = false } = {}) {
   const source = profile || {};
-  const skills = [...new Set([...(source.skills || []), ...allSkillsIn(source.resume_text || "")])];
+  const skills = [...new Set([...(source.skills || []), ...allSkillsIn(source.resume_text || "")])].slice(0, 40);
   const body = {
     skills,
     past_roles: source.titles && source.titles.length ? source.titles : rolesMentioned(source.resume_text || ""),

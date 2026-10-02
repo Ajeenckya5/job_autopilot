@@ -1,6 +1,6 @@
 import { canonicalUrl } from "../lib/sources.js";
 import { scoreAll } from "./match.js";
-import { skillsFromText } from "./resume.js";
+import { phrasesIn, phraseSet } from "./lexicon.js";
 import { clampLookback, htmlToText } from "./text.js";
 
 const US = /\b(al|ak|az|ar|ca|co|ct|dc|de|fl|ga|hi|ia|id|il|in|ks|ky|la|ma|md|me|mi|mn|mo|ms|mt|nc|nd|ne|nh|nj|nm|nv|ny|oh|ok|or|pa|ri|sc|sd|tn|tx|ut|va|vt|wa|wi|wv|wy|usa|united states|remote)\b/i;
@@ -117,12 +117,13 @@ export function recencyScore(posted, days, now = Date.now()) {
   return Math.max(0, 1 - age / span);
 }
 
+/** Skill phrases of a posting the resume uses, and the ones it does not, rarest first. */
 export function skillHits(resumeText, jobText) {
-  const resume = new Set(skillsFromText(resumeText));
-  const found = skillsFromText(jobText);
+  const resume = phraseSet(resumeText);
+  const found = phrasesIn(jobText).sort((a, b) => b.idf - a.idf);
   return {
-    matched: found.filter((skill) => resume.has(skill)).slice(0, 8),
-    missing: found.filter((skill) => !resume.has(skill)).slice(0, 5),
+    matched: found.filter((row) => resume.has(row.phrase)).slice(0, 8).map((row) => row.phrase),
+    missing: found.filter((row) => !resume.has(row.phrase)).slice(0, 5).map((row) => row.phrase),
   };
 }
 

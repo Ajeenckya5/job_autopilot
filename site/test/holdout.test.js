@@ -41,15 +41,16 @@ describe("independent holdout", () => {
     expect(data.jobs.filter((job) => job.relevant)).toHaveLength(72);
   });
 
-  // Floors sit just under what the scorer measured when the labels were written (Sep 2026:
-  // precision@10 0.67, recall 0.65, precision of shown 0.61, AUC 0.92). Raise them as it improves.
+  // Floors sit just under what the scorer measured. Sep 2026 with fixed role lists: precision@10
+  // 0.67, recall 0.65, precision of shown 0.61, AUC 0.92. With skills and titles learned from the
+  // postings: 0.75, 0.68, 0.82, 0.93. Raise them as it improves.
   it("keeps honest floors on real postings", () => {
     const got = holdoutMetrics();
     console.log(`HOLDOUT ${JSON.stringify(got, (key, value) => (typeof value === "number" ? Math.round(value * 100) / 100 : value))}`);
-    expect(got.precisionAt10).toBeGreaterThanOrEqual(0.64);
-    expect(got.recallShown).toBeGreaterThanOrEqual(0.6);
-    expect(got.precisionShown).toBeGreaterThanOrEqual(0.58);
-    expect(got.auc).toBeGreaterThanOrEqual(0.9);
+    expect(got.precisionAt10).toBeGreaterThanOrEqual(0.72);
+    expect(got.recallShown).toBeGreaterThanOrEqual(0.64);
+    expect(got.precisionShown).toBeGreaterThanOrEqual(0.78);
+    expect(got.auc).toBeGreaterThanOrEqual(0.91);
     got.rows.forEach((row) => expect(row.auc, row.id).toBeGreaterThanOrEqual(0.72));
   });
 });

@@ -36,8 +36,8 @@ describe("search coverage", () => {
   it("asks for the role titles first, closest roles first, without short phrases", () => {
     const terms = searchTermsFor(profile);
     expect(terms.slice(0, 2)).toEqual(["machine learning engineer", "data scientist"]);
+    // Related titles come from postings that read alike, not from a list.
     expect(terms).toContain("ml engineer");
-    expect(terms).toContain("applied scientist");
     expect(terms).not.toContain("mle");
     expect(terms.length).toBeLessThanOrEqual(16);
     expect(searchQuery(profile).terms).toEqual(terms);

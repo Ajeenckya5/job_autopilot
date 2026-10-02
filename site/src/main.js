@@ -12,6 +12,7 @@ import { isMacHost, providersForMode } from "./logic/llm/providers.js";
 import { listModels, scoreJobs } from "./logic/llm/score.js";
 import { clearAppData, enforceStorageBudget, formatMegabytes, measureStorage } from "./logic/storage.js";
 import { guessName, readResumeFile, skillsFromText, suggestTitles } from "./logic/resume.js";
+import { loadLexicon, phraseSet } from "./logic/lexicon.js";
 import { loadSentry } from "./sentry.js";
 import { followUpDue, icsFor, kpis, markJob, STATUSES } from "./logic/tracker.js";
 import { PLAN, SHORTCUTS, WHATS_NEW, followUpDraft } from "./logic/premium.js";
@@ -781,6 +782,7 @@ async function rankInWorker(jobs, profile) {
         reject(new Error("Matching failed."));
       };
       const safe = { ...(profile || {}) };
+      safe.resume_terms = [...phraseSet(safe.resume_text || "")];
       delete safe.resume_text;
       delete safe.resume_file;
       worker.postMessage({ jobs, profile: safe });
@@ -844,14 +846,29 @@ async function loadUsaJobs(data) {
   return jobs;
 }
 
-async function searchNow() {
-  if (searchBusy) return;
+/**
+ * Found roles are not kept on the device, only the ones you act on. So each visit searches again,
+ * and an open tab repeats it as often as you asked for (runs per day).
+ */
+let autoTimer = null;
+function autoSearch() {
   const data = store();
   if (!data) return;
+  if (!searchBusy && !loadJobs().some((job) => job.status === "new")) searchNow();
+  const runs = Number(data.runs_per_day) || 0;
+  clearInterval(autoTimer);
+  if (runs > 0) autoTimer = setInterval(() => searchNow(), Math.max(1, 24 / runs) * 3600000);
+}
+
+async function searchNow() {
+  if (searchBusy) return;
+  if (!store()) return;
   const live = $("statusLive");
   searchBusy = true;
   live.textContent = "Searching…";
   try {
+    await loadLexicon();
+    const data = store();
     const profile = profileFrom(data);
     let vector = null;
     try {
@@ -880,7 +897,10 @@ async function searchNow() {
     const ranked = await rankInWorker(pool, rankingProfile);
     const collapsed = collapsePostings(ranked).map((job) => {
       const old = loadJobs().find((row) => row.id === job.id);
-      return old ? { ...job, status: old.status, notes: old.notes, applied_at: old.applied_at } : { ...job, status: "new" };
+      if (!old) return { ...job, status: "new" };
+      // Keep everything the person added (status, notes, dates such as an interview) over the fresh copy.
+      const mine = Object.fromEntries(Object.entries(old).filter(([key]) => !(key in job)));
+      return { ...job, ...mine, status: old.status, notes: old.notes, applied_at: old.applied_at };
     });
     const kept = loadJobs().filter((old) => !collapsed.some((job) => job.id === old.id) && old.status && old.status !== "new");
     saveJobs(collapsePostings(collapsed.concat(kept)));
@@ -908,6 +928,7 @@ function bootWelcome() {
       const pdfjs = await import("pdfjs-dist");
       pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
       const mammoth = await import("mammoth");
+      await loadLexicon();
       const got = await readResumeFile(file, { pdfjs, mammoth });
       const skills = got.skills.length ? got.skills : skillsFromText(got.text);
       selected.splice(0, selected.length, ...skills);
@@ -1368,6 +1389,10 @@ openStore().then(async (db) => {
   }
 }).catch(() => {}).finally(() => {
   paint();
+  loadLexicon().then(() => {
+    paint();
+    autoSearch();
+  });
   const dsn = document.querySelector('meta[name="sentry-dsn"]')?.content || "";
   loadSentry(dsn).catch(() => {});
 });
