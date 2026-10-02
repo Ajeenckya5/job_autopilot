@@ -251,20 +251,20 @@ test("after titles, postings that use the resume's skill phrases come first, hyp
   assert.equal(page.json.title_matches, 1);
 });
 
-test("the search columns migration fills titles and descriptions for rows already stored", async () => {
+test("the search columns migration adds empty columns and drops the family indexes", async () => {
   const db = openLocalD1();
+  const columns = (await db.prepare("PRAGMA table_info(jobs)").bind().all()).results.map((row) => row.name);
+  assert.equal(columns.includes("title_lc") && columns.includes("text_lc"), true);
+  const indexes = (await db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'jobs'").bind().all()).results.map((row) => row.name);
+  assert.equal(indexes.includes("idx_jobs_country_posted"), true);
+  assert.equal(indexes.includes("idx_jobs_filter") || indexes.includes("idx_jobs_search"), false);
+  // A row stored before the migration stays out of title search until the feed sends it again.
   await db.prepare(
-    "INSERT INTO jobs (id, country, family, company, updated_at, posted_at, cursor, content_hash, payload) VALUES ('x', 'united-states', '', 'x', '', '', 1, 'h', ?)",
-  ).bind(JSON.stringify({ title: "E-Discovery Paralegal", description_text: "Run e-discovery in Relativity/Everlaw." })).run();
-  const sql = readFileSync(new URL("../migrations/0003_search_any_field.sql", import.meta.url), "utf8");
-  const update = sql.slice(sql.indexOf("UPDATE jobs"), sql.indexOf("CREATE INDEX"));
-  await db.prepare(update.trim().replace(/;$/, "")).bind().run();
-  const row = await db.prepare("SELECT title_lc, text_lc FROM jobs WHERE id = 'x'").bind().first();
-  // Close enough until the next full feed rewrites the row through searchable().
-  assert.equal(row.title_lc, "e discovery paralegal");
-  assert.equal(row.text_lc, "run e discovery in relativity everlaw.");
-  const page = await searchJobs(db, { countries: ["united-states"], since: "", skills: ["relativity"], terms: [] });
-  assert.equal(page.jobs.length, 0, "rows without a posting date stay out of the look-back");
+    "INSERT INTO jobs (id, country, family, company, updated_at, posted_at, cursor, content_hash, payload) VALUES ('x', 'united-states', '', 'x', '', '2026-09-20T00:00:00Z', 1, 'h', ?)",
+  ).bind(JSON.stringify({ id: "x", title: "Paralegal", description_text: "Pleadings." })).run();
+  const page = await searchJobs(db, { countries: ["united-states"], since: "2026-09-01T00:00:00Z", terms: ["paralegal"] });
+  assert.equal(page.title_matches, 0);
+  assert.equal(page.jobs.length, 1);
 });
 
 test("search matches whole words, so a short skill does not find longer words", async () => {

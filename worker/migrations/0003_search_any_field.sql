@@ -1,13 +1,13 @@
 -- Search by title and by skill phrases in any field, without fixed job families.
--- title_lc and text_lc hold the title and description folded for whole-word LIKE: lowercase, with
--- hyphens, slashes, underscores, apostrophes and common punctuation as spaces. New rows get the
--- same from searchable() in the Worker, which also drops accents and extra spaces; the next full
--- feed refreshes every row.
+-- title_lc and text_lc hold the title and description folded for whole-word LIKE (searchable() in
+-- the Worker). They start empty and are filled as the feed sends each job; the deploy that brings
+-- this migration sends the whole feed. Rows are not backfilled here: D1 counts every row and index
+-- entry written, and a backfill plus a full send would pass the free plan's daily write limit.
 ALTER TABLE jobs ADD COLUMN title_lc TEXT NOT NULL DEFAULT '';
 ALTER TABLE jobs ADD COLUMN text_lc TEXT NOT NULL DEFAULT '';
 
-UPDATE jobs SET
-  title_lc = replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(json_extract(payload, '$.title'), '')), '-', ' '), '/', ' '), '_', ' '), '''', ' '), ',', ' '), '. ', ' '), ';', ' '), ':', ' '), '(', ' '), ')', ' '), '!', ' '), '?', ' '), '"', ' '), '|', ' '), char(10), ' '),
-  text_lc = substr(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(lower(coalesce(json_extract(payload, '$.description_text'), '')), '-', ' '), '/', ' '), '_', ' '), '''', ' '), ',', ' '), '. ', ' '), ';', ' '), ':', ' '), '(', ' '), ')', ' '), '!', ' '), '?', ' '), '"', ' '), '|', ' '), char(10), ' '), 1, 4000);
-
 CREATE INDEX IF NOT EXISTS idx_jobs_country_posted ON jobs(country, posted_at);
+
+-- Both served the five fixed families, which search no longer uses. Each costs a write per job.
+DROP INDEX IF EXISTS idx_jobs_filter;
+DROP INDEX IF EXISTS idx_jobs_search;

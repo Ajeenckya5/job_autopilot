@@ -55,6 +55,12 @@ export function sampleJobs() {
 }
 
 export async function stubSearch(page, jobs = sampleJobs()) {
+  // Nothing in a test reaches the live jobs API.
+  await page.route("**/v1/config**", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ api: true, sync: true, push: true, events: true, insights: true }),
+  }));
   await page.route("**/v1/search**", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",

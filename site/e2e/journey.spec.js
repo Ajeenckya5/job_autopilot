@@ -9,7 +9,9 @@ const views = [
 
 for (const size of views) {
   test.describe(`${size.width}px`, () => {
-    test.use({ viewport: size });
+    // Stubs only see requests the page makes itself; a service worker in WebKit would send them to
+    // the live API instead. The offline test below keeps the service worker.
+    test.use({ viewport: size, serviceWorkers: "block" });
 
     test("onboarding, search, apply, and filters stay on this site", async ({ page }) => {
       const bad = [];
