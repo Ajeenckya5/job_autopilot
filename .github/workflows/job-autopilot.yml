@@ -1,8 +1,9 @@
 name: job-autopilot
 
-# Runs the scrape/score pipeline in the cloud every 6 hours and emails each
-# track's workbook. Scrape-only: manual_apply_only is forced on, so nothing is
-# ever auto-applied to and no recruiter mail is sent.
+# Runs the scrape/score pipeline in the cloud once a day at 5 PM Chicago time,
+# Monday to Friday, and emails each track's workbook. Scrape-only:
+# manual_apply_only is forced on, so nothing is ever auto-applied to and no
+# recruiter mail is sent.
 #
 # Required repo secrets (Settings > Secrets and variables > Actions):
 #   GEMINI_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY   - at least one
@@ -14,8 +15,13 @@ name: job-autopilot
 # than on a local run; the company-careers and jobright sources hold up better.
 
 on:
+  # GitHub cron is UTC only. 5 PM Chicago is 23:00 UTC in winter (CST) and
+  # 22:00 UTC in summer (CDT), so both are listed and the gate job below lets
+  # through only the one that matches today's offset: one run per weekday.
+  # Minute 7 avoids the top-of-hour queue, where GitHub delays or drops runs.
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: "7 23 * * 1-5"
+    - cron: "7 22 * * 1-5"
   workflow_dispatch:
     inputs:
       track:
@@ -32,7 +38,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - name: Keep only the 5 PM Chicago run
+        id: check
+        env:
+          EVENT: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
+        run: |
+          # Manual runs always go through.
+          if [ "$EVENT" != "schedule" ]; then echo "run=yes" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$(TZ=America/Chicago date +%z)" = "-0600" ]; then want="7 23 * * 1-5"; else want="7 22 * * 1-5"; fi
+          # Compare against the cron that fired, not the clock, so a late start still runs.
+          if [ "$CRON" = "$want" ]; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=no" >> "$GITHUB_OUTPUT"
+            echo "Skipping: '$CRON' is not 5 PM Chicago today."
+          fi
+
   run:
+    needs: gate
+    if: needs.gate.outputs.run == 'yes'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
