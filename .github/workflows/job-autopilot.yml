@@ -1,13 +1,15 @@
 name: job-autopilot
 
-# Runs the scrape/score pipeline once a day, Monday to Friday, starting at
-# 4:47 PM Chicago time, and emails both tracks' workbooks (about an hour later).
+# Runs the scrape/score pipeline once a day, Monday to Friday. The scrape starts
+# at exactly 5:00 PM Chicago time, so the jobs are fresh as of 5 PM, and both
+# tracks' workbooks are emailed about an hour later.
 # Scrape-only: manual_apply_only is forced on, so nothing is ever auto-applied
 # to and no recruiter mail is sent.
 #
 # Starting on time without any outside service: GitHub starts scheduled runs
-# hours late, so the run is scheduled for late morning and its first job waits
-# on the runner until 4:47 PM Chicago. The repo is public, so runner time is free.
+# hours late, so the run is scheduled for late morning and its first job only
+# waits on the runner until 5:00 PM Chicago; nothing is scraped before then.
+# The repo is public, so runner time is free.
 #
 # Required repo secrets (Settings > Secrets and variables > Actions):
 #   GEMINI_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY   - at least one
@@ -19,13 +21,13 @@ name: job-autopilot
 # than on a local run; the company-careers and jobright sources hold up better.
 
 on:
-  # 17:07 UTC is 11:07 AM Chicago in winter (CST), 12:07 PM in summer (CDT): up
-  # to 5 hours 40 minutes of lead, more than the worst delay seen on this repo.
-  # 18:07 UTC only matters on a day GitHub drops the first slot; otherwise it
+  # 17:27 UTC is 11:27 AM Chicago in winter (CST), 12:27 PM in summer (CDT): up
+  # to 5 hours 33 minutes of lead, more than the worst delay seen on this repo.
+  # 18:27 UTC only matters on a day GitHub drops the first slot; otherwise it
   # sees that today's files already went out and stops in seconds.
   schedule:
-    - cron: "7 17 * * 1-5"
-    - cron: "7 18 * * 1-5"
+    - cron: "27 17 * * 1-5"
+    - cron: "27 18 * * 1-5"
   workflow_dispatch:
     inputs:
       track:
@@ -52,7 +54,7 @@ jobs:
     outputs:
       run: ${{ steps.check.outputs.run }}
     steps:
-      - name: Wait until 4:47 PM Chicago, then check today's files are not sent yet
+      - name: Wait until 5:00 PM Chicago, then check today's files are not sent yet
         id: check
         env:
           EVENT: ${{ github.event_name }}
@@ -63,18 +65,18 @@ jobs:
           # Manual runs always go through, right away.
           if [ "$EVENT" != "schedule" ]; then echo "run=yes" >> "$GITHUB_OUTPUT"; exit 0; fi
 
-          # Wait here until 4:47 PM Chicago. A slot GitHub starts after that runs at once.
+          # Wait here until 5:00 PM Chicago. A slot GitHub starts after that runs at once.
           now="${NOW:-$(date +%s)}"
           start="$(TZ=America/Chicago date -d "@$now" +%F)"
-          target="$(TZ=America/Chicago date -d "$start 16:47" +%s)"
+          target="$(TZ=America/Chicago date -d "$start 17:00" +%s)"
           wait=$(( target - now ))
           if [ "$wait" -gt $(( 340 * 60 )) ]; then
             echo "run=no" >> "$GITHUB_OUTPUT"
-            echo "Skipping: started $(( wait / 60 )) minutes before 4:47 PM, longer than a job can wait."
+            echo "Skipping: started $(( wait / 60 )) minutes before 5:00 PM, longer than a job can wait."
             exit 0
           fi
           if [ "$wait" -gt 0 ]; then
-            echo "Waiting $(( wait / 60 )) minutes, until 4:47 PM Chicago."
+            echo "Waiting $(( wait / 60 )) minutes, until 5:00 PM Chicago."
             sleep "$wait"
           fi
 
