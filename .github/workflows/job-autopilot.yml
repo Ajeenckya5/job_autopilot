@@ -1,9 +1,11 @@
 name: job-autopilot
 
-# Runs the scrape/score pipeline in the cloud once a day at 5 PM Chicago time,
-# Monday to Friday, and emails each track's workbook. Scrape-only:
-# manual_apply_only is forced on, so nothing is ever auto-applied to and no
-# recruiter mail is sent.
+# Runs the scrape/score pipeline once a day, Monday to Friday, and emails each
+# track's workbook by 6 PM Chicago time. GitHub often starts scheduled runs
+# hours late and sometimes drops them, so there are several slots through the
+# day: the first one GitHub delivers does the work and the rest skip themselves.
+# Scrape-only: manual_apply_only is forced on, so nothing is ever auto-applied
+# to and no recruiter mail is sent.
 #
 # Required repo secrets (Settings > Secrets and variables > Actions):
 #   GEMINI_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY   - at least one
@@ -15,13 +17,16 @@ name: job-autopilot
 # than on a local run; the company-careers and jobright sources hold up better.
 
 on:
-  # GitHub cron is UTC only. 5 PM Chicago is 23:00 UTC in winter (CST) and
-  # 22:00 UTC in summer (CDT), so both are listed and the gate job below lets
-  # through only the one that matches today's offset: one run per weekday.
-  # Minute 7 avoids the top-of-hour queue, where GitHub delays or drops runs.
+  # Weekday slots, in UTC because GitHub cron has no time zones. In Chicago they
+  # are 9:37, 11:37, 1:37, 2:37 and 3:37 in winter (CST), an hour later in summer
+  # (CDT). A run takes 45 to 75 minutes, so even a slot that starts a few hours
+  # late lands before 6 PM. Minute 37 avoids the top-of-hour rush.
   schedule:
-    - cron: "7 23 * * 1-5"
-    - cron: "7 22 * * 1-5"
+    - cron: "37 15 * * 1-5"
+    - cron: "37 17 * * 1-5"
+    - cron: "37 19 * * 1-5"
+    - cron: "37 20 * * 1-5"
+    - cron: "37 21 * * 1-5"
   workflow_dispatch:
     inputs:
       track:
@@ -40,24 +45,42 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
     outputs:
       run: ${{ steps.check.outputs.run }}
     steps:
-      - name: Keep only the 5 PM Chicago run
+      - name: Decide whether this run goes ahead
         id: check
         env:
           EVENT: ${{ github.event_name }}
-          CRON: ${{ github.event.schedule }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           # Manual runs always go through.
           if [ "$EVENT" != "schedule" ]; then echo "run=yes" >> "$GITHUB_OUTPUT"; exit 0; fi
-          if [ "$(TZ=America/Chicago date +%z)" = "-0600" ]; then want="7 23 * * 1-5"; else want="7 22 * * 1-5"; fi
-          # Compare against the cron that fired, not the clock, so a late start still runs.
-          if [ "$CRON" = "$want" ]; then
-            echo "run=yes" >> "$GITHUB_OUTPUT"
-          else
+
+          # A scheduled slot goes ahead only if no earlier run today already sent
+          # the files. Runs in this concurrency group never overlap, so any other
+          # run is either finished or still waiting for its own turn.
+          today="$(TZ=America/Chicago date +%F)"
+          sent=no
+          while read -r id created || [ -n "$id" ]; do
+            [ -n "$id" ] || continue
+            [ "$(TZ=America/Chicago date -d "$created" +%F)" = "$today" ] || continue
+            ok="$(gh api "repos/$REPO/actions/runs/$id/jobs" \
+                    --jq '[.jobs[] | select(.name | startswith("run ("))] | (length > 0 and all(.conclusion == "success"))')" || ok=unknown
+            if [ "$ok" = "true" ]; then sent=yes; echo "Run $id already sent today's files."; break; fi
+          done < <(gh api "repos/$REPO/actions/workflows/job-autopilot.yml/runs?status=completed&per_page=30" \
+                     --jq ".workflow_runs[] | select(.id != $RUN_ID) | \"\(.id) \(.created_at)\"")
+
+          if [ "$sent" = "yes" ]; then
             echo "run=no" >> "$GITHUB_OUTPUT"
-            echo "Skipping: '$CRON' is not 5 PM Chicago today."
+            echo "Skipping: today's files already went out."
+          else
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+            echo "No files sent yet today, so this slot runs."
           fi
 
   run:
