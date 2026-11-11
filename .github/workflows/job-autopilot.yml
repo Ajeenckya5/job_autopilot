@@ -1,11 +1,9 @@
 name: job-autopilot
 
-# Runs the scrape/score pipeline once a day, Monday to Friday, and emails each
-# track's workbook by 6 PM Chicago time. GitHub often starts scheduled runs
-# hours late and sometimes drops them, so there are several slots through the
-# day: the first one GitHub delivers does the work and the rest skip themselves.
-# Scrape-only: manual_apply_only is forced on, so nothing is ever auto-applied
-# to and no recruiter mail is sent.
+# Runs the scrape/score pipeline once every 24 hours, Monday to Friday, and
+# emails both tracks' workbooks by 7 PM Chicago time. Scrape-only:
+# manual_apply_only is forced on, so nothing is ever auto-applied to and no
+# recruiter mail is sent.
 #
 # Required repo secrets (Settings > Secrets and variables > Actions):
 #   GEMINI_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY   - at least one
@@ -17,16 +15,12 @@ name: job-autopilot
 # than on a local run; the company-careers and jobright sources hold up better.
 
 on:
-  # Weekday slots, in UTC because GitHub cron has no time zones. In Chicago they
-  # are 9:37, 11:37, 1:37, 2:37 and 3:37 in winter (CST), an hour later in summer
-  # (CDT). A run takes 45 to 75 minutes, so even a slot that starts a few hours
-  # late lands before 6 PM. Minute 37 avoids the top-of-hour rush.
+  # One weekday run at 16:37 UTC: 10:37 AM Chicago in winter (CST), 11:37 AM in
+  # summer (CDT). GitHub often starts scheduled runs hours late (up to about five
+  # and a half on this repo) and a run takes 45 to 75 minutes, so the slot is
+  # early enough for both files to land by 7 PM even on a slow day.
   schedule:
-    - cron: "37 15 * * 1-5"
-    - cron: "37 17 * * 1-5"
-    - cron: "37 19 * * 1-5"
-    - cron: "37 20 * * 1-5"
-    - cron: "37 21 * * 1-5"
+    - cron: "37 16 * * 1-5"
   workflow_dispatch:
     inputs:
       track:
