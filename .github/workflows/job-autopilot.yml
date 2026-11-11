@@ -1,9 +1,13 @@
 name: job-autopilot
 
-# Runs the scrape/score pipeline once every 24 hours, Monday to Friday, and
-# emails both tracks' workbooks by 7 PM Chicago time. Scrape-only:
-# manual_apply_only is forced on, so nothing is ever auto-applied to and no
-# recruiter mail is sent.
+# Runs the scrape/score pipeline once a day, Monday to Friday, starting at
+# 4:47 PM Chicago time, and emails both tracks' workbooks (about an hour later).
+# Scrape-only: manual_apply_only is forced on, so nothing is ever auto-applied
+# to and no recruiter mail is sent.
+#
+# Starting on time without any outside service: GitHub starts scheduled runs
+# hours late, so the run is scheduled for late morning and its first job waits
+# on the runner until 4:47 PM Chicago. The repo is public, so runner time is free.
 #
 # Required repo secrets (Settings > Secrets and variables > Actions):
 #   GEMINI_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY   - at least one
@@ -15,11 +19,13 @@ name: job-autopilot
 # than on a local run; the company-careers and jobright sources hold up better.
 
 on:
-  # One weekday run at 22:47 UTC: 4:47 PM Chicago in winter (CST), 5:47 PM in
-  # summer (CDT). A run takes 45 to 75 minutes. Minute 47 avoids the
-  # top-of-hour rush, when GitHub delays scheduled runs the most.
+  # 17:07 UTC is 11:07 AM Chicago in winter (CST), 12:07 PM in summer (CDT): up
+  # to 5 hours 40 minutes of lead, more than the worst delay seen on this repo.
+  # 18:07 UTC only matters on a day GitHub drops the first slot; otherwise it
+  # sees that today's files already went out and stops in seconds.
   schedule:
-    - cron: "47 22 * * 1-5"
+    - cron: "7 17 * * 1-5"
+    - cron: "7 18 * * 1-5"
   workflow_dispatch:
     inputs:
       track:
@@ -31,19 +37,22 @@ on:
 permissions:
   contents: read
 
+# Scheduled runs queue behind each other, so only one of them ever does the work.
+# Manual runs have their own queue and never wait behind a scheduled run's wait.
 concurrency:
-  group: job-autopilot
+  group: job-autopilot-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
   gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
     permissions:
       actions: read
     outputs:
       run: ${{ steps.check.outputs.run }}
     steps:
-      - name: Decide whether this run goes ahead
+      - name: Wait until 4:47 PM Chicago, then check today's files are not sent yet
         id: check
         env:
           EVENT: ${{ github.event_name }}
@@ -51,29 +60,47 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
         run: |
-          # Manual runs always go through.
+          # Manual runs always go through, right away.
           if [ "$EVENT" != "schedule" ]; then echo "run=yes" >> "$GITHUB_OUTPUT"; exit 0; fi
 
-          # A scheduled slot goes ahead only if no earlier run today already sent
-          # the files. Runs in this concurrency group never overlap, so any other
-          # run is either finished or still waiting for its own turn.
+          # Wait here until 4:47 PM Chicago. A slot GitHub starts after that runs at once.
+          now="${NOW:-$(date +%s)}"
+          start="$(TZ=America/Chicago date -d "@$now" +%F)"
+          target="$(TZ=America/Chicago date -d "$start 16:47" +%s)"
+          wait=$(( target - now ))
+          if [ "$wait" -gt $(( 340 * 60 )) ]; then
+            echo "run=no" >> "$GITHUB_OUTPUT"
+            echo "Skipping: started $(( wait / 60 )) minutes before 4:47 PM, longer than a job can wait."
+            exit 0
+          fi
+          if [ "$wait" -gt 0 ]; then
+            echo "Waiting $(( wait / 60 )) minutes, until 4:47 PM Chicago."
+            sleep "$wait"
+          fi
+
+          # One run a day: stop if another run today already sent the files, or a
+          # manual run is sending them right now.
           today="$(TZ=America/Chicago date +%F)"
           sent=no
-          while read -r id created || [ -n "$id" ]; do
+          while read -r id created status event || [ -n "$id" ]; do
             [ -n "$id" ] || continue
             [ "$(TZ=America/Chicago date -d "$created" +%F)" = "$today" ] || continue
+            if [ "$event" = "workflow_dispatch" ] && [ "$status" != "completed" ]; then
+              sent=yes; echo "Manual run $id is sending today's files."; break
+            fi
+            [ "$status" = "completed" ] || continue
             ok="$(gh api "repos/$REPO/actions/runs/$id/jobs" \
                     --jq '[.jobs[] | select(.name | startswith("run ("))] | (length > 0 and all(.conclusion == "success"))')" || ok=unknown
             if [ "$ok" = "true" ]; then sent=yes; echo "Run $id already sent today's files."; break; fi
-          done < <(gh api "repos/$REPO/actions/workflows/job-autopilot.yml/runs?status=completed&per_page=30" \
-                     --jq ".workflow_runs[] | select(.id != $RUN_ID) | \"\(.id) \(.created_at)\"")
+          done < <(gh api "repos/$REPO/actions/workflows/job-autopilot.yml/runs?per_page=30" \
+                     --jq ".workflow_runs[] | select(.id != $RUN_ID) | \"\(.id) \(.created_at) \(.status) \(.event)\"")
 
           if [ "$sent" = "yes" ]; then
             echo "run=no" >> "$GITHUB_OUTPUT"
             echo "Skipping: today's files already went out."
           else
             echo "run=yes" >> "$GITHUB_OUTPUT"
-            echo "No files sent yet today, so this slot runs."
+            echo "Starting the scrape for today's files."
           fi
 
   run:
