@@ -15,12 +15,11 @@ name: job-autopilot
 # than on a local run; the company-careers and jobright sources hold up better.
 
 on:
-  # One weekday run at 16:37 UTC: 10:37 AM Chicago in winter (CST), 11:37 AM in
-  # summer (CDT). GitHub often starts scheduled runs hours late (up to about five
-  # and a half on this repo) and a run takes 45 to 75 minutes, so the slot is
-  # early enough for both files to land by 7 PM even on a slow day.
+  # One weekday run at 22:47 UTC: 4:47 PM Chicago in winter (CST), 5:47 PM in
+  # summer (CDT). A run takes 45 to 75 minutes. Minute 47 avoids the
+  # top-of-hour rush, when GitHub delays scheduled runs the most.
   schedule:
-    - cron: "37 16 * * 1-5"
+    - cron: "47 22 * * 1-5"
   workflow_dispatch:
     inputs:
       track:
