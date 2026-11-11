@@ -48,6 +48,9 @@ HEAD_SHARE = 0.1          # a word ending at least a tenth of the titles it is i
 RELATED_MIN = 0.3
 RELATED_TOP = 8
 CENTROID_TOP = 60
+CARRY_DECAY = 0.97        # a related title missing from a rebuild fades 3% per rebuild (every 6 hours)
+CARRY_MIN = 0.2           # and is dropped below this, about four days after it last showed up
+STUDENT = re.compile(r"\b(intern|interns|internship|internships|coop|co op|apprentice|apprentices|apprenticeship)\b")
 
 
 def fold(text: str) -> str:
@@ -275,6 +278,12 @@ def title_terms(title: str, places: set[str]) -> set[str]:
     return {" ".join(core[-n:]) for n in range(1, MAX_N + 1) if len(core) >= n}
 
 
+def is_student(term: str) -> bool:
+    """An internship, co-op or apprenticeship title. These are never related to full-time titles,
+    so a "data scientist" search does not fill up with "data science internship" postings."""
+    return bool(STUDENT.search(term))
+
+
 def related_titles(jobs, doc_grams, phrases, places) -> dict[str, list]:
     """Titles whose postings ask for the same distinctive things, closest first, 0..1 closeness.
     A title's profile is the skill phrases its employers use far more often than postings overall."""
@@ -331,13 +340,46 @@ def related_titles(jobs, doc_grams, phrases, places) -> dict[str, list]:
             # "senior paralegal" already contains "paralegal": only new titles are worth listing.
             if own <= words or words <= own:
                 continue
+            if is_student(term) != is_student(other):
+                continue
             rows.append([other, round(sim, 2)])
         if rows:
             out[term] = rows
     return dict(sorted(out.items()))
 
 
+def carry_over(today: dict, previous: dict) -> dict:
+    """Related titles from today's postings, plus the previous build's, fading.
+
+    A link rests on a handful of postings, so one thin rebuild can drop it ("data scientist" and
+    "applied scientist") and bring it back the next. Keeping each previous link at 97% of its
+    closeness for a few days, unless today's postings score it higher, stops that flicker."""
+    out: dict[str, list] = {}
+    for term in sorted(set(today) | set(previous)):
+        best = {other: sim for other, sim in today.get(term, [])}
+        for other, sim in previous.get(term, []):
+            if is_student(term) != is_student(other):
+                continue
+            faded = round(sim * CARRY_DECAY, 2)
+            if faded >= CARRY_MIN and faded > best.get(other, 0):
+                best[other] = faded
+        rows = sorted(best.items(), key=lambda row: (-row[1], row[0]))[:RELATED_TOP]
+        if rows:
+            out[term] = [[other, sim] for other, sim in rows]
+    return out
+
+
+def previous_titles(out: Path) -> dict:
+    try:
+        titles = json.loads(out.read_text()).get("titles")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return titles if isinstance(titles, dict) else {}
+
+
 def write(jobs: list[dict], out: Path, texts: list[str] | None = None) -> dict:
     lexicon = build(jobs, texts)
+    if lexicon["phrases"]:
+        lexicon["titles"] = carry_over(lexicon["titles"], previous_titles(out))
     out.write_text(json.dumps(lexicon, separators=(",", ":"), ensure_ascii=False))
     return lexicon

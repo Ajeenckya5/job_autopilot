@@ -1,3 +1,10 @@
+import { readFileSync } from "node:fs";
+
+// The site learns which titles relate from the live feed, and the feed job rewrites that file
+// every 6 hours. Browser tests read the same fixed copy the unit tests use, so they test the
+// site and not whatever was posted today.
+const FIXED_LEXICON = readFileSync(new URL("../test/fixtures/lexicon/lexicon.json", import.meta.url), "utf8");
+
 export function sampleJobs() {
   const posted = new Date().toISOString();
   return [
@@ -55,6 +62,12 @@ export function sampleJobs() {
 }
 
 export async function stubSearch(page, jobs = sampleJobs()) {
+  // Only the data fetch: the bundler's own module request for the file carries a query (?url).
+  await page.route((url) => /\/lexicon[^/]*\.json$/.test(url.pathname) && !url.search, (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: FIXED_LEXICON,
+  }));
   // Nothing in a test reaches the live jobs API.
   await page.route("**/v1/config**", (route) => route.fulfill({
     status: 200,

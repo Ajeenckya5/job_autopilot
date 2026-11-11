@@ -15,10 +15,10 @@ FIELDS = {
 CITIES = ["Chicago, IL", "Dallas, TX", "Denver, CO", "Austin, TX", "Boston, MA", "Seattle, WA"]
 
 
-def corpus():
+def corpus(fields=FIELDS):
     rng = random.Random(7)
     jobs = []
-    for field, (titles, skills) in FIELDS.items():
+    for field, (titles, skills) in fields.items():
         for employer in range(12):
             company = f"{field.title()} Co {employer}"
             for n in range(3):
@@ -67,6 +67,47 @@ class LexiconTest(unittest.TestCase):
     def test_rare_events_are_not_skills(self):
         self.assertLess(lexicon.binomial_tail(4, 8, 0.002), 1e-6)
         self.assertGreater(lexicon.binomial_tail(3, 6, 0.05), 1e-4)
+
+
+class TitleCarryTest(unittest.TestCase):
+    def test_a_link_missing_from_a_rebuild_fades_instead_of_vanishing(self):
+        kept = lexicon.carry_over({}, {"data scientist": [["applied scientist", 0.35]]})
+        self.assertEqual(kept, {"data scientist": [["applied scientist", 0.34]]})
+
+    def test_old_links_last_a_few_days_then_drop(self):
+        titles = {"data scientist": [["applied scientist", 0.35]]}
+        rebuilds = 0
+        while titles:
+            titles = lexicon.carry_over({}, titles)
+            rebuilds += 1
+        self.assertGreaterEqual(rebuilds, 12)  # three days of rebuilds every 6 hours
+        self.assertLessEqual(rebuilds, 40)
+
+    def test_the_higher_of_today_and_the_faded_link_wins(self):
+        previous = {"paralegal": [["legal assistant", 0.5], ["law clerk", 0.4]]}
+        today = {"paralegal": [["legal assistant", 0.3], ["law clerk", 0.6]]}
+        self.assertEqual(lexicon.carry_over(today, previous)["paralegal"], [["law clerk", 0.6], ["legal assistant", 0.48]])
+
+    def test_full_time_titles_never_link_to_internships(self):
+        kept = lexicon.carry_over({}, {"data scientist": [["data science internship", 0.33], ["applied scientist", 0.35]]})
+        self.assertEqual(kept, {"data scientist": [["applied scientist", 0.34]]})
+        # Without the rule these two read alike enough to link at 0.78.
+        fields = dict(FIELDS, legal=(["Paralegal", "Legal Intern"], FIELDS["legal"][1]))
+        titles = lexicon.build(corpus(fields))["titles"]
+        self.assertNotIn("legal intern", dict(titles.get("paralegal", [])))
+        self.assertNotIn("paralegal", dict(titles.get("legal intern", [])))
+
+    def test_write_carries_the_previous_build_forward(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "lexicon.json"
+            out.write_text(json.dumps({"titles": {"data scientist": [["applied scientist", 0.35]]}}))
+            learned = lexicon.write(corpus(), out)
+            self.assertEqual(dict(learned["titles"]["data scientist"]), {"applied scientist": 0.34})
+            self.assertIn("legal assistant", dict(learned["titles"]["paralegal"]))
+            self.assertEqual(json.loads(out.read_text())["titles"], learned["titles"])
 
 
 class BoilerplateTest(unittest.TestCase):
