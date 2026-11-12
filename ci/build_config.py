@@ -27,8 +27,6 @@ TRACKS = {
             "New Grad Machine Learning Engineer", "New Grad AI Engineer",
             "Entry Level Machine Learning Engineer",
             "Early Career Machine Learning Engineer", "Forward Deployed Engineer",
-            "Fall 2026 co-op Machine Learning", "Fall 2026 co-op AI",
-            "Fall 2026 co-op Data Science", "Fall 2026 co-op Software Engineer",
         ],
     },
     "ie": {
@@ -38,10 +36,11 @@ TRACKS = {
             "Industrial Engineer", "Process Engineer", "Operations Engineer",
             "Operations Analyst", "Continuous Improvement Engineer",
             "Project Engineer", "Manufacturing Engineer", "Supply Chain Analyst",
-            "Quality Engineer", "Fall 2026 co-op Industrial Engineer",
-            "Fall 2026 co-op Operations", "Fall 2026 co-op Process Engineer",
-            "Fall 2026 coop Operations Engineer",
+            "Supply Chain Engineer", "Supply Chain Planner", "Demand Planner",
+            "Supply Planner", "Production Planner", "Materials Planner",
         ],
+        # No quality roles on this track, even when another search turns one up.
+        "block_titles": ["quality"],
     },
 }
 
@@ -74,6 +73,10 @@ BLOCK_TITLES = [
     "director", "manager", "vp ", "vice president", "architect", " ii", " iii",
     " iv", "level 2", "level 3", "ai content writer", "content writer",
     "business analyst", "ai operations specialist", "operations specialist",
+    # Full-time roles only: no internships or co-ops. "intern" is matched with a
+    # following character so "internal" and "international" titles stay in.
+    "internship", "intern ", "intern,", "intern)", "intern-", "intern/",
+    "co-op", "coop ", "co op ",
 ]
 
 
@@ -193,7 +196,7 @@ def main() -> int:
         "filters:",
         "  block_title_keywords:",
     ]
-    for t in BLOCK_TITLES:
+    for t in BLOCK_TITLES + spec.get("block_titles", []):
         lines.append(f"    - {q(t)}")
     lines += [
         "  max_years_required: 3",
