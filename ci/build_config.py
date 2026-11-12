@@ -77,11 +77,21 @@ BLOCK_TITLES = [
 ]
 
 
+def _is_monday(now: datetime | None = None) -> bool:
+    now = now or datetime.now(ZoneInfo("America/Chicago"))
+    return now.weekday() == 0
+
+
 def max_age_hours(now: datetime | None = None) -> int:
     """How far back the 5 PM Chicago scrape looks: 18 hours on Monday,
     24 hours on every other day."""
-    now = now or datetime.now(ZoneInfo("America/Chicago"))
-    return 18 if now.weekday() == 0 else 24
+    return 18 if _is_monday(now) else 24
+
+
+def yc_companies_per_role(now: datetime | None = None) -> int:
+    """YC hiring companies have no post date, so the time window never filters
+    them and they would repeat every day. Include them once a week, on Monday."""
+    return 10 if _is_monday(now) else 0
 
 
 def main() -> int:
@@ -149,6 +159,7 @@ def main() -> int:
         "  indeed_max_pages_per_role: 100",
         "  jobright_max_pages_per_role: 250",
         "  watched_company_discovery_candidates: 8",
+        f"  yc_companies_per_role: {yc_companies_per_role()}",
         "throttle_seconds: 60",
         f"output_dir: {q(str(out_dir))}",
         "",
