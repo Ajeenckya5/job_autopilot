@@ -10,6 +10,8 @@ import base64
 import os
 import pathlib
 import sys
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 TRACKS = {
     "ai": {
@@ -73,6 +75,13 @@ BLOCK_TITLES = [
     " iv", "level 2", "level 3", "ai content writer", "content writer",
     "business analyst", "ai operations specialist", "operations specialist",
 ]
+
+
+def max_age_hours(now: datetime | None = None) -> int:
+    """How far back the 5 PM Chicago scrape looks: 18 hours on Monday,
+    24 hours on every other day."""
+    now = now or datetime.now(ZoneInfo("America/Chicago"))
+    return 18 if now.weekday() == 0 else 24
 
 
 def main() -> int:
@@ -184,7 +193,7 @@ def main() -> int:
         "  tailor_resume: false",
         "  require_verified_email: false",
         "  auto_watch_companies: true",
-        "  max_age_hours: 12",
+        f"  max_age_hours: {max_age_hours()}",
         "  min_resume_match_score: 35",
         "  detail_enrich_min_score: 55",
         "",
