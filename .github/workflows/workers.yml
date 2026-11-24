@@ -104,3 +104,21 @@ jobs:
             exit 0
           fi
           printf '%s' "$GH_DISPATCH_TOKEN" | npx --yes wrangler@4.138.0 secret put GH_DISPATCH_TOKEN --config wrangler.start.toml
+      - name: Check the starter's token can start the daily run
+        env:
+          GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
+        run: |
+          [ -n "$GH_DISPATCH_TOKEN" ] || exit 0
+          api="https://api.github.com/repos/${{ github.repository }}/actions/workflows/job-autopilot.yml"
+          auth=(-H "Authorization: Bearer $GH_DISPATCH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
+          read_code=$(curl -s -o /dev/null -w '%{http_code}' "${auth[@]}" "$api/runs?per_page=1")
+          # A dispatch to a branch that does not exist starts nothing: GitHub answers
+          # 422 when the token may start runs, and 403 or 404 when it may not.
+          write_code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${auth[@]}" "$api/dispatches" \
+            -d '{"ref":"refs/heads/token-check-does-not-exist"}')
+          echo "list runs: $read_code, start runs: $write_code"
+          if [ "$read_code" != "200" ] || [ "$write_code" != "422" ]; then
+            echo "::error::GH_DISPATCH_TOKEN needs access to this repo with Actions read and write."
+            exit 1
+          fi
+          echo "The token can list and start job-autopilot runs."
