@@ -1,3 +1,6 @@
+# The GitHub token comes from the GH_DISPATCH_TOKEN repo secret: a fine-grained
+# token for job_autopilot only, with Actions read and write. The workers deploy
+# copies it here and checks it can start runs.
 name = "job-autopilot-start"
 main = "src/start.js"
 compatibility_date = "2026-09-01"
