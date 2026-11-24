@@ -7,9 +7,11 @@ name: job-autopilot
 # to and no recruiter mail is sent.
 #
 # Starting on time without any outside service: GitHub starts scheduled runs
-# hours late, so the run is scheduled for late morning and its first job only
-# waits on the runner until 5:00 PM Chicago; nothing is scraped before then.
-# The repo is public, so runner time is free.
+# hours late (5 to 10 hours on this repo in Nov 2026), so slots are spread
+# across the day. The first slot that arrives within 340 minutes of 5:00 PM
+# Chicago waits on the runner until then; earlier arrivals stop in seconds, and
+# later ones stop once they see today's files went out. Nothing is scraped
+# before 5:00 PM. The repo is public, so runner time is free.
 #
 # Required repo secrets (Settings > Secrets and variables > Actions):
 #   GEMINI_API_KEY, OPENROUTER_API_KEY, MISTRAL_API_KEY   - at least one
@@ -21,13 +23,13 @@ name: job-autopilot
 # than on a local run; the company-careers and jobright sources hold up better.
 
 on:
-  # 17:27 UTC is 11:27 AM Chicago in winter (CST), 12:27 PM in summer (CDT): up
-  # to 5 hours 33 minutes of lead, more than the worst delay seen on this repo.
-  # 18:27 UTC only matters on a day GitHub drops the first slot; otherwise it
-  # sees that today's files already went out and stops in seconds.
+  # Every 2 hours from 07:27 to 21:27 UTC on weekdays (1:27 AM to 3:27 PM CST,
+  # 2:27 AM to 4:27 PM CDT). The 5:00 PM wait window is 5 hours 40 minutes
+  # wide, so whatever GitHub's delay is between 0 and 10 hours, at least two
+  # slots arrive inside it. A single 17:27 slot stopped working once delays
+  # passed 5.5 hours: from Nov 16 the run started at 5:14 to 9:24 PM.
   schedule:
-    - cron: "27 17 * * 1-5"
-    - cron: "27 18 * * 1-5"
+    - cron: "27 7-21/2 * * 1-5"
   workflow_dispatch:
     inputs:
       track:
@@ -65,8 +67,17 @@ jobs:
           # Manual runs always go through, right away.
           if [ "$EVENT" != "schedule" ]; then echo "run=yes" >> "$GITHUB_OUTPUT"; exit 0; fi
 
-          # Wait here until 5:00 PM Chicago. A slot GitHub starts after that runs at once.
+          # Weekdays only, by Chicago's calendar: a Friday slot GitHub delivers
+          # after midnight must not run on Saturday.
           now="${NOW:-$(date +%s)}"
+          dow="$(TZ=America/Chicago date -d "@$now" +%u)"
+          if [ "$dow" -gt 5 ]; then
+            echo "run=no" >> "$GITHUB_OUTPUT"
+            echo "Skipping: it is the weekend in Chicago."
+            exit 0
+          fi
+
+          # Wait here until 5:00 PM Chicago. A slot GitHub starts after that runs at once.
           start="$(TZ=America/Chicago date -d "@$now" +%F)"
           target="$(TZ=America/Chicago date -d "$start 17:00" +%s)"
           wait=$(( target - now ))
