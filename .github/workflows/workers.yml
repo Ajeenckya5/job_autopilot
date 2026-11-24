@@ -30,7 +30,7 @@ jobs:
               "df04bc5d-9fad-4cc5-9d1f-c79b9a0b2896",
               "58de046ae4204473a76cf75b16188250",
           )
-          files = [Path("worker/wrangler.toml"), Path("worker/wrangler.push.toml")]
+          files = [Path("worker/wrangler.toml"), Path("worker/wrangler.push.toml"), Path("worker/wrangler.start.toml")]
           text = "\n".join(path.read_text() for path in files)
           if text.count(f'account_id = "{account}"') != len(files):
               raise SystemExit("every wrangler config must set the personal account_id")
@@ -84,3 +84,23 @@ jobs:
           wranglerVersion: "4.138.0"
           workingDirectory: worker
           command: deploy --config wrangler.push.toml
+      - name: Deploy the 5 PM starter for the daily job run
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ea080f698fdf34fa24a55dbd904ad90a
+          wranglerVersion: "4.138.0"
+          workingDirectory: worker
+          command: deploy --config wrangler.start.toml
+      - name: Give the starter its GitHub token
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ea080f698fdf34fa24a55dbd904ad90a
+          GH_DISPATCH_TOKEN: ${{ secrets.GH_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_DISPATCH_TOKEN" ]; then
+            echo "::warning::GH_DISPATCH_TOKEN is not a repo secret yet, so the 5 PM starter cannot start runs."
+            exit 0
+          fi
+          printf '%s' "$GH_DISPATCH_TOKEN" | npx --yes wrangler@4.138.0 secret put GH_DISPATCH_TOKEN --config wrangler.start.toml

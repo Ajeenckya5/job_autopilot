@@ -6,7 +6,11 @@ name: job-autopilot
 # Scrape-only: manual_apply_only is forced on, so nothing is ever auto-applied
 # to and no recruiter mail is sent.
 #
-# Starting on time without any outside service: GitHub starts scheduled runs
+# On-time start: the job-autopilot-start Cloudflare Worker (worker/src/start.js)
+# asks for a manual run at 5:01 PM Chicago on weekdays, unless a run already has
+# today covered. The schedule below is the backup if that Worker is down.
+#
+# Backup without any outside service: GitHub starts scheduled runs
 # hours late (5 to 10 hours on this repo in Nov 2026), so slots are spread
 # across the day. The first slot that arrives within 340 minutes of 5:00 PM
 # Chicago waits on the runner until then; earlier arrivals stop in seconds, and
@@ -49,7 +53,7 @@ concurrency:
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 350
     permissions:
       actions: read
@@ -119,7 +123,7 @@ jobs:
   run:
     needs: gate
     if: needs.gate.outputs.run == 'yes'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
       fail-fast: false

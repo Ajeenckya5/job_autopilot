@@ -1,0 +1,14 @@
+name = "job-autopilot-start"
+main = "src/start.js"
+compatibility_date = "2026-09-01"
+workers_dev = false
+account_id = "ea080f698fdf34fa24a55dbd904ad90a"
+
+# 22:01 and 23:01 UTC on weekdays: one of them is 5:01 PM in Chicago (CDT, then
+# CST). The Worker skips the other. One expression, so it uses one of the
+# account's free cron triggers.
+[triggers]
+crons = ["1 22,23 * * 1-5"]
+
+[observability]
+enabled = true
